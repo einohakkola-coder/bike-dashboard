@@ -20,7 +20,8 @@ export async function signIn(email, password) {
 
 // returns { user, session } — session is null when the project requires email confirmation
 export async function signUp(email, password) {
-  const { data, error } = await sb.auth.signUp({ email, password });
+  // the confirmation email links back to the app itself
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
   if (error) throw error;
   return data;
 }

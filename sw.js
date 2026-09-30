@@ -1,4 +1,4 @@
-const CACHE = 'ride-v5';
+const CACHE = 'ride-v6';
 const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
