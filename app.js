@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '3.2';   // bump here and in version.json on every release
+const VERSION = '3.3';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
