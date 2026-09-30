@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '3.0';   // bump here and in version.json on every release
+const VERSION = '3.1';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -909,7 +909,6 @@ function onSettingChanged(k) {
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
-  if (k === 'sosHold') $('sos').style.setProperty('--hold', `${S.sosHold}s`);
 }
 
 $('clearHistory').addEventListener('click', e => {
@@ -968,7 +967,7 @@ function applyRemoteSettings(rs) {
   if (!rs) return;
   Object.keys(DEFAULTS).forEach(k => { if (!k.startsWith('key') && k in rs) S[k] = rs[k]; });
   store.set('settings', S);
-  applyMapStyle(); onSettingChanged('sosHold'); updateGreeting();
+  applyMapStyle(); updateGreeting();
 }
 function refreshAll() { renderProfile(); renderSettings(); renderRide(); if (listMode === 'saved') { renderCards(); if (D.routes.length) selectRoute(0); } }
 
@@ -1056,7 +1055,7 @@ $('syncNow').addEventListener('click', () => startupSync());
    ===================================================================== */
 let holdTimer = null, countTimer = null;
 
-/* ---------- countdown sound + vibration (last three seconds, Pixel-style) ---------- */
+/* ---------- SOS countdown sound + vibration ---------- */
 let audio = null;
 function unlockAudio() {
   // must happen inside the touch itself, or iOS keeps the sound muted
@@ -1077,17 +1076,54 @@ function tone(freq, start, dur, vol = .55) {
   o.connect(g).connect(audio.destination);
   o.start(start); o.stop(start + dur + .02);
 }
-function alarmBeep(n) {
+function bell(freq, start, dur, vol) {
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, start);
+  g.gain.setValueAtTime(0.0001, start);
+  g.gain.exponentialRampToValueAtTime(vol, start + .008);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(start); o.stop(start + dur + .02);
+}
+function chime() {            // counts 5 and 4
   if (!audio) return;
   const t = audio.currentTime + .01;
-  // short double beep that climbs in pitch as the count runs out: 3 → 2 → 1
-  const f = { 3: 1046, 2: 1175, 1: 1318 }[n] || 988;
-  tone(f, t, .14); tone(f, t + .2, .14);
+  bell(523, t, .9, .22); bell(880, t, .8, .2); bell(220, t, .9, .06);
+  [0, .1, .18, .33].forEach((d, i) => bell(1568, t + d, i === 3 ? .7 : .14, .26));
+  bell(3136, t, .5, .05);
+  bell(784, t + .33, .6, .16);
+}
+function siren() {            // counts 3, 2 and 1
+  if (!audio) return;
+  const t = audio.currentTime + .01;
+  const lp = audio.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 4200;
+  lp.connect(audio.destination);
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(420, t);
+  o.frequency.linearRampToValueAtTime(1568, t + .35);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(.28, t + .02);
+  g.gain.setValueAtTime(.28, t + .34);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + .37);
+  o.connect(g).connect(lp);
+  o.start(t); o.stop(t + .4);
+  const b = audio.createOscillator(), bg = audio.createGain();   // G5 blip right after the sweep
+  b.type = 'sawtooth';
+  b.frequency.setValueAtTime(784, t + .38);
+  bg.gain.setValueAtTime(0.0001, t + .38);
+  bg.gain.exponentialRampToValueAtTime(.24, t + .39);
+  bg.gain.setValueAtTime(.24, t + .5);
+  bg.gain.exponentialRampToValueAtTime(0.0001, t + .54);
+  b.connect(bg).connect(lp);
+  b.start(t + .38); b.stop(t + .56);
 }
 function alarmFinal() {
   if (!audio) return;
   const t = audio.currentTime + .01;
-  tone(1568, t, .5, .6);
+  tone(1568, t, .5, .5);
 }
 // real vibration where the browser has it (Android); on iPhone a hidden switch toggle gives a haptic tick
 function strongBuzz(pattern) {
@@ -1097,36 +1133,91 @@ function strongBuzz(pattern) {
   for (let i = 0; i < ticks; i++) setTimeout(() => sw.parentElement.click(), i * 120);
 }
 
-function startHold(e) {
-  e.preventDefault();
+const RING = 552.9;   // circumference of the countdown ring (r = 88)
+let sosLeft = 0, ringTimer = null;
+const SOS_ICON = { sms: 'i-chat', call: 'i-phone', loc: 'i-pin', warn: 'i-alert' };
+
+function openSOS() {
   if (holdTimer) return;
   unlockAudio();
-  const secs = S.sosHold || 5;
-  $('sos').style.setProperty('--hold', `${secs}s`);
-  $('sos').classList.add('holding');
-  document.body.classList.add('sos-holding');
-  let left = secs;
-  showCount(left);
-  countTimer = setInterval(() => { if (--left > 0) showCount(left); }, 1000);
-  holdTimer = setTimeout(fireSOS, secs * 1000);
+  const secs = S.sosHold || 5, nums = S.sosNumbers;
+  const items = [];
+  if (!nums.length) items.push(['warn', 'Ei SOS-numeroita: avaa asetukset']);
+  else if (S.sosAction === 'call') items.push(['call', `Soittaa numeroon ${nums[0]}`]);
+  else {
+    items.push(['sms', `Lähettää tekstiviestin ${nums.length === 1 ? 'yhdelle kontaktille' : `${nums.length} kontaktille`}`]);
+    if (S.sosLocation) items.push(['loc', lastFix ? 'Jakaa sijaintisi kontakteille' : 'Jakaa sijaintisi (odotetaan GPS:ää)']);
+  }
+  $('sosList').innerHTML = items.map(([k, t]) => `<li class="${k === 'warn' ? 'warn' : ''}"><svg><use href="#${SOS_ICON[k]}"/></svg>${esc(t)}</li>`).join('');
+
+  const scr = $('sosScreen'), prog = $('sosProg');
+  resetKnob(false);
+  scr.hidden = false;
+  void scr.offsetWidth;
+  scr.classList.add('show');
+  // drain the ring from a timer rather than a CSS transition so it stays in sync with the count
+  const t0 = Date.now();
+  prog.style.strokeDashoffset = '0';
+  ringTimer = setInterval(() => { prog.style.strokeDashoffset = String(RING * Math.min(1, (Date.now() - t0) / (secs * 1000))); }, 40);
+  sosLeft = secs;
+  sosTick();
+  countTimer = setInterval(() => { if (--sosLeft > 0) sosTick(); }, 1000);
+  holdTimer = setTimeout(() => { closeSOSScreen(); fireSOS(); }, secs * 1000);
 }
-function endHold() {
-  clearTimeout(holdTimer); clearInterval(countTimer);
-  holdTimer = countTimer = null;
-  $('sos').classList.remove('holding');
-  document.body.classList.remove('sos-holding');
-  $('countdown').classList.remove('show', 'tick');
-  $('sosLabel').textContent = 'SOS';
+function sosTick() {
+  const n = $('sosNum');
+  n.textContent = sosLeft;
+  n.classList.remove('pop'); void n.offsetWidth; n.classList.add('pop');
+  // sound and vibration are always on here, even with haptics off: this is an emergency action
+  if (sosLeft <= 3) { siren(); strongBuzz([220, 80, 220]); }
+  else { chime(); strongBuzz(60); }
 }
-function showCount(n) {
-  const c = $('countdown');
-  c.textContent = n;
-  $('sosLabel').textContent = n;
-  c.classList.remove('tick'); void c.offsetWidth; c.classList.add('show', 'tick');
-  c.classList.toggle('urgent', n <= 3);
-  // last three seconds: alarm beep + strong vibration, always on (even with haptics off) since this is an emergency action
-  if (n <= 3) { alarmBeep(n); strongBuzz([220, 80, 220]); }
+function closeSOSScreen() {
+  clearTimeout(holdTimer); clearInterval(countTimer); clearInterval(ringTimer);
+  holdTimer = countTimer = ringTimer = null;
+  const scr = $('sosScreen');
+  scr.classList.remove('show');
+  setTimeout(() => { if (!holdTimer) scr.hidden = true; }, 300);
 }
+function cancelSOS() {
+  closeSOSScreen();
+  navigator.vibrate?.(30);
+  toast('SOS peruttu');
+}
+
+/* slide-to-cancel */
+function resetKnob(animate = true) {
+  const k = $('sosKnob');
+  k.classList.toggle('snap', animate);
+  k.style.transform = 'translateX(0)';
+  $('sosSlider').querySelectorAll('.sos-slider-text, .sos-slider-hint').forEach(el => el.style.opacity = '');
+}
+(() => {
+  const knob = $('sosKnob'), slider = $('sosSlider');
+  let startX = 0, x = 0, max = 0, dragging = false;
+  knob.addEventListener('pointerdown', e => {
+    dragging = true; startX = e.clientX - x;
+    max = slider.clientWidth - knob.offsetWidth - 12;
+    knob.classList.remove('snap');
+    knob.setPointerCapture(e.pointerId);
+  });
+  knob.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    x = Math.max(0, Math.min(max, e.clientX - startX));
+    knob.style.transform = `translateX(${x}px)`;
+    slider.querySelectorAll('.sos-slider-text, .sos-slider-hint').forEach(el => el.style.opacity = String(1 - x / max * 1.6));
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (x > max * .75) { knob.style.transform = `translateX(${max}px)`; cancelSOS(); }
+    else resetKnob(true);
+    x = 0;
+  };
+  knob.addEventListener('pointerup', end);
+  knob.addEventListener('pointercancel', end);
+})();
+
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function sosText() {
   let body = S.sosMessage || DEFAULT_MSG;
@@ -1135,7 +1226,6 @@ function sosText() {
 }
 
 function fireSOS() {
-  endHold();
   alarmFinal();
   strongBuzz([500]);
   const nums = S.sosNumbers;
@@ -1154,8 +1244,7 @@ function fireSOS() {
   location.href = isIOS() ? `sms:/open?addresses=${nums.join(',')}&body=${enc}` : `sms:${nums.join(',')}?body=${enc}`;
 }
 const sos = $('sos');
-sos.addEventListener('pointerdown', startHold);
-['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => sos.addEventListener(ev, endHold));
+sos.addEventListener('click', () => openSOS());
 sos.addEventListener('contextmenu', e => e.preventDefault());
 
 /* =====================================================================
@@ -1223,7 +1312,6 @@ delete S.keyDiscord;   // removed in 2.4
 if (S.sosAction !== 'call') S.sosAction = 'sms';   // the Shortcut and 'none' options were removed
 store.set('settings', S);
 applyMapStyle();
-onSettingChanged('sosHold');
 updateGreeting();
 showTab('home');
 renderCards();
