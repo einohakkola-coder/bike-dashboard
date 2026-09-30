@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '3.4';   // bump here and in version.json on every release
+const VERSION = '3.5';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -89,7 +89,12 @@ function simplify(line, minM = 12) {
   out.push(line[line.length - 1]);
   return out.map(([a, b]) => [+a.toFixed(5), +b.toFixed(5)]);
 }
-const samplePoints = (line, n = 5) => Array.from({ length: n }, (_, i) => line[Math.round(i * (line.length - 1) / (n - 1))]).map(([lat, lon]) => ({ lat, lon }));
+const isMulti = line => Array.isArray(line?.[0]?.[0]);
+const flatLine = line => isMulti(line) ? line.flat() : line;
+const simplifyAny = line => isMulti(line) ? line.map(s => simplify(s)).filter(s => s.length > 1) : simplify(line);
+const lineLength = line => (isMulti(line) ? line : [line]).reduce((sum, seg) =>
+  sum + seg.slice(1).reduce((a, p, i) => a + haversine({ lat: seg[i][0], lon: seg[i][1] }, { lat: p[0], lon: p[1] }), 0), 0);
+const samplePoints = (line, n = 5) => (line = flatLine(line), Array.from({ length: n }, (_, i) => line[Math.round(i * (line.length - 1) / (n - 1))])).map(([lat, lon]) => ({ lat, lon }));
 
 /* =====================================================================
    Maps
@@ -227,6 +232,7 @@ function onPos(p) {
     homeMap.setView(ll, 13);
     rideMap.setView(ll, 16);
     if (tab === 'home' && listMode === 'suggested' && !routesGenerated) generateRoutes();
+    if (listMode === 'nearby' && nearbyState === 'idle') loadNearby();
   } else if (follow && tab === 'record') {
     rideMap.panTo(ll, { animate: true });
   }
@@ -490,7 +496,7 @@ function saveRoute(r) {
   const saved = {
     id: uid(), key: r.key || null, name: r.name, kind: r.kind || 'loop', desc: r.desc || '',
     distance: Math.round(r.distance), duration: Math.round(r.duration || 0), created: Date.now(),
-    line: simplify(r.line), points: (r.points || []).map(p => ({ lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) })), steps: r.steps || []
+    line: simplifyAny(r.line), points: (r.points || []).map(p => ({ lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) })), steps: r.steps || []
   };
   D.routes.unshift(saved);
   persist();
@@ -515,7 +521,7 @@ async function toggleSave(r) {
 const LENGTHS = { short: [5, 10, 20], normal: [8, 15, 30], long: [20, 40, 60] };
 const targets = () => LENGTHS[S.routeLen] || LENGTHS.normal;
 let routesGenerated = false, generating = false, aiError = '', suggested = [], homeLines = [], selected = 0, listMode = 'suggested';
-const currentList = () => listMode === 'saved' ? D.routes : suggested;
+const currentList = () => listMode === 'saved' ? D.routes : listMode === 'nearby' ? nearby : suggested;
 
 const OPENAI_MODEL = 'gpt-5';
 const ROUTE_SCHEMA = {
@@ -668,6 +674,114 @@ async function generateRoutes() {
   if (listMode === 'suggested') { renderCards(); selectRoute(0); }
 }
 
+/* ---------- routes people have mapped in OpenStreetMap (route=bicycle / route=mtb relations) ---------- */
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const NETWORK = { icn: 'Kansainvälinen', ncn: 'Kansallinen', rcn: 'Alueellinen', lcn: 'Paikallinen' };
+let nearby = [], nearbyState = 'idle', nearbyErr = '';
+
+async function overpass(query) {
+  // the public servers are often busy: retry with a back-off and fall back to a mirror
+  let err;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const url of OVERPASS) {
+      try {
+        const r = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: query }) });
+        if (r.ok) return await r.json();
+        err = new Error(r.status === 429 || r.status === 504 ? 'OpenStreetMap-palvelin on ruuhkainen' : `Overpass ${r.status}`);
+      } catch (e) { err = new Error('Ei yhteyttä OpenStreetMapiin'); }
+    }
+    await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
+  }
+  throw err;
+}
+
+function osmItem(e) {
+  const t = e.tags || {};
+  const name = t['name:fi'] || t.name || (t.ref ? `Reitti ${t.ref}` : '');
+  if (!name || !e.bounds) return null;
+  const type = t.route === 'mtb' ? 'Maastopyöräreitti' : `${NETWORK[t.network] ? NETWORK[t.network] + ' pyöräreitti' : 'Pyöräreitti'}`;
+  const note = (t['description:fi'] || t.description || '').slice(0, 80);
+  return {
+    id: `osm:${e.id}`, key: `osm:${e.id}`, osmId: e.id, osm: true, kind: 'osm', name,
+    desc: [type, note].filter(Boolean).join(' · '),
+    totalKm: parseFloat(String(t.distance || '').replace(',', '.')) || null,
+    bounds: e.bounds, line: [], distance: 0, steps: []
+  };
+}
+
+async function loadNearby(force) {
+  if (!lastFix || nearbyState === 'loading') return;
+  const here = { lat: lastFix.lat, lon: lastFix.lon };
+  const cacheKey = `osmList:${here.lat.toFixed(2)},${here.lon.toFixed(2)}`;
+  const cached = store.get(cacheKey, null);
+  nearbyState = 'loading'; nearbyErr = '';
+  if (listMode === 'nearby') renderCards();
+  try {
+    let items;
+    if (!force && cached && Date.now() - cached.t < 3 * 86400000) items = cached.items;
+    else {
+      const j = await overpass(`[out:json][timeout:25];relation["route"~"^(bicycle|mtb)$"]["state"!~"proposed"](around:12000,${here.lat},${here.lon});out tags bb;`);
+      items = j.elements.map(osmItem).filter(Boolean);
+      store.set(cacheKey, { t: Date.now(), items });
+    }
+    // nearest first; very long routes (EuroVelo etc.) go after the local ones
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const score = r => {
+      const b = r.bounds;
+      const d = haversine(here, { lat: clamp(here.lat, b.minlat, b.maxlat), lon: clamp(here.lon, b.minlon, b.maxlon) });
+      const size = haversine({ lat: b.minlat, lon: b.minlon }, { lat: b.maxlat, lon: b.maxlon });
+      return d + (size > 80000 ? 6000 : 0);
+    };
+    nearby = items.map(r => ({ ...r, line: [], _score: score(r) })).sort((a, b) => a._score - b._score).slice(0, 20);
+    nearbyState = 'done';
+  } catch (e) {
+    console.warn(e);
+    nearbyState = 'error'; nearbyErr = e.message;
+  }
+  if (listMode === 'nearby') { renderCards(); selectRoute(0); }
+}
+
+async function ensureGeometry(r) {
+  if (!r.osm || r.line.length) return r;
+  const cached = store.get(`osmGeom:${r.osmId}`, null);
+  if (cached) { Object.assign(r, cached); return r; }
+  // long routes are clipped to roughly 30 km around you
+  const c = lastFix || { lat: (r.bounds.minlat + r.bounds.maxlat) / 2, lon: (r.bounds.minlon + r.bounds.maxlon) / 2 };
+  const s = Math.max(r.bounds.minlat, c.lat - .27), n = Math.min(r.bounds.maxlat, c.lat + .27);
+  const w = Math.max(r.bounds.minlon, c.lon - .55), e = Math.min(r.bounds.maxlon, c.lon + .55);
+  const j = await overpass(`[out:json][timeout:25];relation(${r.osmId});out geom(${s},${w},${n},${e});`);
+  const segs = [];
+  for (const m of j.elements[0]?.members || []) {
+    if (m.type !== 'way' || !m.geometry) continue;
+    let cur = [];
+    for (const p of m.geometry) {
+      if (p && typeof p.lat === 'number') cur.push([+p.lat.toFixed(5), +p.lon.toFixed(5)]);
+      else if (cur.length) { if (cur.length > 1) segs.push(cur); cur = []; }
+    }
+    if (cur.length > 1) segs.push(cur);
+  }
+  // join ways that touch end-to-end so the route draws as a few long lines
+  const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+  const merged = [];
+  for (const sg of segs) {
+    const last = merged[merged.length - 1];
+    if (last && same(last[last.length - 1], sg[0])) last.push(...sg.slice(1));
+    else if (last && same(last[last.length - 1], sg[sg.length - 1])) last.push(...sg.slice(0, -1).reverse());
+    else merged.push([...sg]);
+  }
+  if (!merged.length) throw new Error('Reitillä ei ole viivaa lähelläsi');
+  const geo = { line: merged, distance: Math.round(lineLength(merged)), points: samplePoints(merged, 8) };
+  Object.assign(r, geo);
+  store.set(`osmGeom:${r.osmId}`, geo);
+  return r;
+}
+function osmMeta(r) {
+  const parts = [];
+  if (r.distance) parts.push(`${toDist(r.distance).toFixed(1)} ${dUnit()}${r.totalKm && r.totalKm * 1000 > r.distance * 1.3 ? ' lähelläsi' : ''}`);
+  if (r.totalKm && (!r.distance || r.totalKm * 1000 > r.distance * 1.3)) parts.push(`koko reitti ${toDist(r.totalKm * 1000).toFixed(0)} ${dUnit()}`);
+  return parts.join(' · ') || (r.loading ? 'Ladataan reittiä…' : 'OpenStreetMap');
+}
+
 function renderCards() {
   const box = $('cards');
   const list = currentList();
@@ -679,11 +793,18 @@ function renderCards() {
   if (!list.length) {
     let icon = 'i-route', title, text, action = null;
     if (listMode === 'saved') [title, text] = ['Ei vielä omia reittejä', 'Tallenna reitti kirjanmerkki-napista tai lenkin jälkeen, niin se löytyy täältä.'];
+    else if (listMode === 'nearby') {
+      if (!lastFix) [title, text] = ['Odotetaan sijaintia…', 'Lähireitit haetaan, kun GPS löytää sinut.'];
+      else if (nearbyState === 'loading') [title, text] = ['Haetaan lähireittejä…', 'Ihmisten OpenStreetMapiin merkitsemiä pyörä- ja maastopyöräreittejä.'];
+      else if (nearbyState === 'error') { [title, text] = ['Lähireittejä ei saatu', nearbyErr]; action = ['Yritä uudelleen', () => loadNearby(true)]; }
+      else [title, text] = ['Ei merkittyjä reittejä lähellä', 'OpenStreetMapissa ei ole pyöräreittejä 12 km säteellä.'];
+    }
     else if (!hasAiKey()) { icon = 'i-sparkle'; [title, text] = ['Reittiehdotukset AI:lta', 'Lisää API-avain, niin AI suunnittelee lenkkejä lähellesi. Geminin ja Groqin avaimet ovat ilmaisia.']; action = ['Lisää API-avain', openAiSettings]; }
     else if (generating) { icon = 'i-sparkle'; [title, text] = ['AI suunnittelee reittejä…', 'Tämä kestää yleensä 10–30 sekuntia.']; }
     else if (aiError) { [title, text] = ['Reittiehdotukset epäonnistuivat', aiError]; action = ['Yritä uudelleen', () => { routesGenerated = false; generateRoutes(); }]; }
     else [title, text] = ['Odotetaan sijaintia…', 'Reittiehdotukset tulevat, kun GPS löytää sinut.'];
-    box.innerHTML = `<div class="glass empty-card${generating ? ' busy' : ''}"><svg><use href="#${icon}"/></svg><b>${esc(title)}</b><p>${esc(text)}</p>${action ? `<button class="empty-btn">${action[0]}</button>` : ''}</div>`;
+    const busy = (listMode === 'suggested' && generating) || (listMode === 'nearby' && nearbyState === 'loading');
+    box.innerHTML = `<div class="glass empty-card${busy ? ' busy' : ''}"><svg><use href="#${icon}"/></svg><b>${esc(title)}</b><p>${esc(text)}</p>${action ? `<button class="empty-btn">${action[0]}</button>` : ''}</div>`;
     if (action) box.querySelector('.empty-btn').addEventListener('click', () => { buzz(10); action[1](); });
     return;
   }
@@ -692,16 +813,24 @@ function renderCards() {
     el.className = 'glass card';
     el.style.setProperty('--i', i);
     const saved = listMode === 'saved';
-    const meta = `${toDist(r.distance).toFixed(1)} ${dUnit()}${r.duration ? ` · ~${Math.round(r.duration / 60)} min` : ''}${saved ? ` · ${fmtDate(r.created)}` : ''}`;
+    const meta = r.osm && !saved ? osmMeta(r)
+      : `${toDist(r.distance).toFixed(1)} ${dUnit()}${r.duration ? ` · ~${Math.round(r.duration / 60)} min` : ''}${saved ? ` · ${fmtDate(r.created)}` : ''}`;
+    const badge = r.ai ? '<span class="badge">AI</span>' : r.osm || r.kind === 'osm' ? '<span class="badge osm">OSM</span>' : '';
     el.innerHTML = `
-      <div class="t"><span class="name">${esc(r.name)}</span>${r.ai ? '<span class="badge">AI</span>' : ''}</div>
+      <div class="t"><span class="name">${esc(r.name)}</span>${badge}</div>
       <div class="meta">${meta}</div>
       <div class="desc">${esc(r.desc || '')}</div>
       <div class="actions"><button class="go">Aja tämä</button></div>
       <button class="corner ${saved ? '' : isSaved(r) ? 'saved' : ''}" aria-label="${saved ? 'Poista' : 'Tallenna'}">
         <svg><use href="#${saved ? 'i-trash' : 'i-bookmark'}"/></svg></button>`;
     el.addEventListener('click', e => { if (!e.target.closest('button')) selectRoute(i, true); });
-    el.querySelector('.go').addEventListener('click', () => { buzz(15); showTab('record'); setTimeout(() => setActiveRoute(r), 120); });
+    el.querySelector('.go').addEventListener('click', async () => {
+      buzz(15);
+      if (r.osm && !r.line.length) {
+        try { await ensureGeometry(r); } catch (e) { return toast(`Reittiä ei saatu ladattua (${e.message})`); }
+      }
+      showTab('record'); setTimeout(() => setActiveRoute(r), 120);
+    });
     const corner = el.querySelector('.corner');
     corner.addEventListener('click', async () => {
       if (saved) {
@@ -712,6 +841,9 @@ function renderCards() {
         }
         deleteRoute(r); toast('Reitti poistettu'); renderCards(); selectRoute(Math.min(i, D.routes.length - 1));
       } else {
+        if (r.osm && !r.line.length) {
+          try { await ensureGeometry(r); } catch (e) { return toast(`Reittiä ei saatu ladattua (${e.message})`); }
+        }
         await toggleSave(r);
         corner.classList.toggle('saved', isSaved(r));
       }
@@ -723,13 +855,38 @@ function selectRoute(i, scrollCard) {
   const list = currentList();
   if (!list[i]) return;
   selected = i;
+  const r = list[i];
+  if (r.osm && !r.line.length) {
+    const card = $('cards').children[i];
+    if (!r.loading) {
+      r.loading = true;
+      if (card) card.querySelector('.meta').textContent = osmMeta(r);
+      ensureGeometry(r).then(() => {
+        r.loading = false;
+        if (currentList() !== list) return;
+        homeLines[i]?.setLatLngs(r.line);
+        if (card) card.querySelector('.meta').textContent = osmMeta(r);
+        if (selected === i) selectRoute(i, false);
+      }).catch(e => {
+        r.loading = false;
+        if (card) card.querySelector('.meta').textContent = `Ei saatu ladattua (${e.message})`;
+      });
+    }
+    // meanwhile show the route's area
+    const b = r.bounds;
+    const bottomPad = $('view-home').querySelector('.home-bottom').offsetHeight + 20;
+    homeMap.fitBounds([[b.minlat, b.minlon], [b.maxlat, b.maxlon]], { paddingTopLeft: [30, 100], paddingBottomRight: [30, bottomPad], animate: true, maxZoom: 15 });
+    [...$('cards').children].forEach((c, j) => c.classList.toggle('sel', j === i));
+    if (scrollCard) $('cards').children[i]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    return;
+  }
   homeLines.forEach((l, j) => {
     l.setStyle(j === i ? { color: '#0a84ff', weight: 6, opacity: 1 } : { color: '#8e8e93', weight: 4, opacity: .85 });
     if (j === i) l.bringToFront();
   });
   [...$('cards').children].forEach((c, j) => c.classList.toggle('sel', j === i));
   const bottomPad = $('view-home').querySelector('.home-bottom').offsetHeight + 20;
-  homeMap.fitBounds(homeLines[i].getBounds(), { paddingTopLeft: [30, 100], paddingBottomRight: [30, bottomPad], animate: true });
+  homeMap.fitBounds(homeLines[i].getBounds(), { paddingTopLeft: [30, 100], paddingBottomRight: [30, bottomPad], animate: true, maxZoom: 16 });
   if (scrollCard) $('cards').children[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
 }
 let scrollT;
@@ -751,13 +908,14 @@ $('regen').addEventListener('click', () => {
 function setListMode(mode) {
   if (listMode === mode) return;
   listMode = mode;
-  $('homeSeg').classList.toggle('right', mode === 'saved');
+  $('homeSeg').querySelector('.seg-thumb').style.transform = `translateX(${['suggested', 'nearby', 'saved'].indexOf(mode) * 100}%)`;
   $('homeSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.list === mode));
   selected = 0;
   renderCards();
   if (currentList().length) selectRoute(0);
   else if (lastFix) homeMap.setView([lastFix.lat, lastFix.lon], 13, { animate: true });
   if (mode === 'suggested' && !routesGenerated && lastFix) generateRoutes();
+  if (mode === 'nearby' && nearbyState === 'idle' && lastFix) loadNearby();
 }
 $('homeSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { buzz(8); setListMode(b.dataset.list); }));
 

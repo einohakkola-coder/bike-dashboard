@@ -84,13 +84,12 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .greet-sub { font-size: 13px; color: var(--fg-2); margin-top: 1px; }
 .home-bottom { position: absolute; z-index: 500; left: 0; right: 0; bottom: var(--tab-space); display: flex; flex-direction: column; gap: 10px; }
 .seg-pill {
-  position: relative; align-self: center; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 20px; width: 240px;
+  position: relative; align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; border-radius: 20px; width: min(320px, calc(100% - 28px));
 }
 .seg-pill button { position: relative; z-index: 1; height: 32px; font-size: 13px; font-weight: 600; color: var(--fg-2); border-radius: 16px; }
 .seg-pill button.on { color: #000; }
 .seg-pill button:active { transform: none; }
-.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 16px; background: #fff; transition: transform .35s var(--ease); }
-.seg-pill.right .seg-thumb { transform: translateX(100%); }
+.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 16px; background: #fff; transition: transform .35s var(--ease); }
 
 .cards { display: flex; gap: 10px; overflow-x: auto; padding: 2px 14px; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .cards::-webkit-scrollbar { display: none; }
@@ -105,6 +104,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .card .t { display: flex; align-items: center; gap: 8px; padding-right: 40px; }
 .card .name { font-size: 17px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--blue); background: rgba(10,132,255,.15); padding: 3px 7px; border-radius: 6px; flex: none; }
+.badge.osm { color: var(--green); background: rgba(48,209,88,.15); }
 .card .meta { font-size: 13px; color: var(--fg-2); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .card .desc { font-size: 13px; color: var(--fg-2); margin-top: 8px; line-height: 1.4; min-height: 36px; }
 .card .actions { display: flex; gap: 8px; margin-top: 12px; }
