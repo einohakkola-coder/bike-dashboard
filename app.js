@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.2';   // bump here and in version.json on every release
+const VERSION = '2.3';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -18,7 +18,7 @@ const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
   name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true,
   mapStyle: 'liberty', routeLen: 'normal',
-  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5,
+  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'call',
   aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyDiscord: ''
 };
 const S = (() => {
@@ -1064,11 +1064,20 @@ async function fireSOS() {
     try { await sendDiscord(sosPayload()); sentDiscord = true; toast('🚨 Hälytys lähetetty Discordiin', 5000); }
     catch (e) { toast(`Discord-hälytys epäonnistui (${e.message})`, 6000); }
   }
+  if (S.sosAction === 'none') {
+    if (!sentDiscord && !S.keyDiscord) toast('SOS ei lähettänyt mitään: valitse asetuksista soitto, viesti tai Discord', 5000);
+    return;
+  }
   if (!nums.length) {
     if (sentDiscord) return;
     showTab('profile'); renderSettings(); openPage('settings');
     setTimeout(() => $('setNumbers').focus(), 450);
     toast('Lisää SOS-numerot tai Discord-webhook');
+    return;
+  }
+  if (S.sosAction === 'call') {
+    // the phone asks for one tap to confirm the call; web apps can't dial silently
+    location.href = `tel:${nums[0]}`;
     return;
   }
   let body = S.sosMessage || DEFAULT_MSG;
