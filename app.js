@@ -618,6 +618,33 @@ sos.addEventListener('pointerdown', startHold);
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => sos.addEventListener(ev, endHold));
 sos.addEventListener('contextmenu', e => e.preventDefault());
 
+/* =====================================================================
+   Updates — bump VERSION here and in version.json on every release
+   ===================================================================== */
+const VERSION = '1.3';
+$('version').textContent = `Versio ${VERSION}`;
+$('checkUpdate').addEventListener('click', async () => {
+  const btn = $('checkUpdate');
+  btn.disabled = true; btn.textContent = 'Tarkistetaan…';
+  try {
+    const { version } = await (await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })).json();
+    if (version === VERSION) { toast('Uusin versio on jo käytössä'); return; }
+    btn.textContent = `Päivitetään versioon ${version}…`;
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+    // bypass the browser's HTTP cache too, so the reload gets the new files
+    await Promise.all(['./', 'index.html', 'app.js', 'app.css', 'sw.js', 'manifest.json'].map(f => fetch(f, { cache: 'reload' }).catch(() => {})));
+    location.reload();
+    return;
+  } catch {
+    toast('Tarkistus epäonnistui, onko netti päällä?');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Tarkista päivitykset';
+  }
+});
+
 /* ===================================================================== */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 showTab('home');
