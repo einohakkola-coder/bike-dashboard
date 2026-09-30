@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.4';   // bump here and in version.json on every release
+const VERSION = '2.5';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -197,6 +197,7 @@ function askName(def) {
    GPS
    ===================================================================== */
 let lastFix = null, lastFixAt = 0, speedKmh = 0, gotFirstFix = false;
+let peakWin = [];
 let recent = [];   // fixes from the last few seconds, for computing speed when the device doesn't report it
 
 function onPos(p) {
@@ -214,6 +215,8 @@ function onPos(p) {
   if (v !== null) {
     const k = v * 3.6;
     speedKmh = k < 1.5 ? 0 : (speedKmh ? speedKmh * 0.35 + k * 0.65 : k);
+    // peak speed only counts when 3 good fixes in a row agree, so a single GPS jump can't set it
+    if (c.accuracy <= 20) { peakWin.push(k); if (peakWin.length > 3) peakWin.shift(); } else peakWin = [];
   }
   lastFix = fix; lastFixAt = Date.now();
 
@@ -274,7 +277,7 @@ function onRideFix(fix) {
   }
   trackPts.push([fix.lat, fix.lon]);
   track.addLatLng([fix.lat, fix.lon]);
-  if (speedKmh > maxSpeed) maxSpeed = speedKmh;
+  if (peakWin.length === 3) maxSpeed = Math.max(maxSpeed, Math.min(...peakWin));
   lastRidePos = fix;
 }
 function renderRide() {
