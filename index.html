@@ -179,6 +179,14 @@
       <div class="seg small" data-setting="sosHold"><button data-v="3">3 s</button><button data-v="5">5 s</button><button data-v="10">10 s</button></div></div>
   </div>
 
+  <h3>SOS Discordiin</h3>
+  <div class="group">
+    <div class="cell col"><span class="cell-main">Webhook-osoite<small>Kanava → Muokkaa kanavaa → Integraatiot → Webhookit → Kopioi URL</small></span>
+      <input class="field" id="setDiscord" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></div>
+    <button class="cell link" id="testDiscord"><span class="cell-main">Lähetä testiviesti</span><span class="cell-val" id="discordState"></span></button>
+  </div>
+  <p class="foot">SOS lähettää kanavalle heti viestin, jossa on @everyone-maininta ja sijaintisi, joten kanavan jäsenet saavat ilmoituksen. Tekstiviestisovellus avautuu sen jälkeen, jos numeroita on lisätty.</p>
+
   <h3>AI-reitit</h3>
   <div class="group">
     <div class="cell"><span class="cell-main">Palvelu</span>
