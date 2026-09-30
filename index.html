@@ -18,61 +18,82 @@
 </head>
 <body>
 
-<!-- ============ HOME ============ -->
-<section class="view" id="view-home">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6.5 3.5h11a1 1 0 0 1 1 1v16l-6.5-4.2-6.5 4.2v-16a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-8 6 6 0 0 0-11.6 1.3A3.4 3.4 0 0 0 7 18.5z"/></symbol>
+</svg>
+
+<!-- ================= HOME ================= -->
+<section class="view" id="view-home" data-index="0">
   <div class="map" id="homeMap"></div>
   <div class="home-top">
-    <div class="pill" id="homeStatus">Reitit lähelläsi</div>
-    <button class="round" id="regen" aria-label="Luo uudet reitit">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
-    </button>
+    <div class="glass greet">
+      <div class="greet-hi" id="greetHi">Hei</div>
+      <div class="greet-sub" id="homeStatus">Reitit lähelläsi</div>
+    </div>
+    <button class="glass round" id="regen" aria-label="Luo uudet reitit"><svg><use href="#i-sparkle"/></svg></button>
   </div>
-  <div class="cards" id="cards"></div>
+  <div class="home-bottom">
+    <div class="glass seg-pill" id="homeSeg">
+      <span class="seg-thumb"></span>
+      <button data-list="suggested" class="on">Ehdotukset</button>
+      <button data-list="saved">Omat reitit</button>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
 </section>
 
-<!-- ============ RECORD ============ -->
-<section class="view" id="view-record">
+<!-- ================= RECORD ================= -->
+<section class="view" id="view-record" data-index="1">
   <div class="map-wrap">
     <div class="map" id="rideMap"></div>
-
     <div class="map-top">
-      <div class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <div class="glass search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
         <input id="search" type="text" placeholder="Minne ajetaan?" autocomplete="off" enterkeyhint="search">
-        <button id="clearRoute" class="x" aria-label="Poista reitti" hidden>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
-        </button>
+        <button id="saveActive" class="icon-btn" aria-label="Tallenna reitti" hidden><svg><use href="#i-bookmark"/></svg></button>
+        <button id="clearRoute" class="icon-btn" aria-label="Poista reitti" hidden><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
       </div>
-      <div class="results" id="results"></div>
-      <div class="nav" id="nav" hidden>
-        <svg class="arrow" id="navArrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M6 11l6-6 6 6"/></svg>
+      <div class="glass results" id="results"></div>
+      <div class="nav" id="nav">
+        <svg class="arrow" id="navArrow" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></svg>
         <div class="nav-text"><div class="nav-dist" id="navDist"></div><div class="nav-street" id="navStreet"></div></div>
         <div class="nav-left" id="navLeft"></div>
       </div>
     </div>
-
     <div class="map-bottom">
-      <div class="ext" id="ext" hidden>
-        <a id="gmaps" target="_blank" rel="noopener">Google Maps</a>
-        <a id="amaps" target="_blank" rel="noopener">Apple Maps</a>
+      <div class="ext" id="ext">
+        <a class="glass" id="gmaps" target="_blank" rel="noopener">Google Maps</a>
+        <a class="glass" id="amaps" target="_blank" rel="noopener">Apple Maps</a>
       </div>
-      <button class="round" id="recenter" aria-label="Keskitä">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5L3.8 10.2c-.6.3-.6 1.2.1 1.4l6.5 2 2 6.5c.2.7 1.1.7 1.4.1z"/></svg>
-      </button>
+      <div class="map-side">
+        <div class="glass gps-pill"><span class="gps" id="gps">GPS</span></div>
+        <button class="glass round" id="recenter" aria-label="Keskitä"><svg viewBox="0 0 24 24" class="fill"><path d="M20.5 3.5L3.8 10.2c-.6.3-.6 1.2.1 1.4l6.5 2 2 6.5c.2.7 1.1.7 1.4.1z"/></svg></button>
+      </div>
     </div>
   </div>
 
-  <div class="stats"><span><b id="time">0:00</b></span><span><b id="dist">0.00</b> km</span><span class="gps" id="gps"></span></div>
+  <div class="stats">
+    <div><b id="time">0:00</b><span>Aika</span></div>
+    <div><b id="dist">0.00</b><span id="distUnit">km</span></div>
+    <div><b id="avg">0</b><span id="avgUnit">Keski km/h</span></div>
+  </div>
 
   <div class="controls">
     <button class="side" id="pause" aria-label="Tauko">
-      <svg class="ico" id="icoPause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-      <svg class="ico" id="icoPlay" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.4-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>
+      <svg class="ico ico-pause fill" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      <svg class="ico ico-play fill" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.4-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>
     </button>
     <button class="main" id="main" aria-label="Nopeus">
-      <div class="speed"><div class="num" id="speed">0</div><div class="unit">KM/H</div></div>
-      <div class="stop"><i></i><span>STOP</span></div>
-      <div class="start">START</div>
+      <div class="layer start">START</div>
+      <div class="layer speed"><div class="num" id="speed">0</div><div class="unit" id="speedUnit">KM/H</div></div>
+      <div class="layer stop"><i></i><span>STOP</span></div>
     </button>
     <button class="side sos" id="sos" aria-label="SOS">
       <svg class="ring" viewBox="0 0 84 84"><circle cx="42" cy="42" r="39"/></svg>
@@ -81,61 +102,166 @@
   </div>
 </section>
 
-<!-- ============ PROFILE ============ -->
-<section class="view scroll" id="view-profile">
-  <h1>Profiili</h1>
-  <div class="totals">
-    <div><div class="v" id="tRides">0</div><div class="k">Lenkit</div></div>
-    <div><div class="v" id="tKm">0</div><div class="k">km</div></div>
-    <div><div class="v" id="tTime">0 h</div><div class="k">Aika</div></div>
+<!-- ================= PROFILE ================= -->
+<section class="view scroll" id="view-profile" data-index="2">
+  <div class="prof-head">
+    <div class="avatar" id="avatar">?</div>
+    <div class="prof-id">
+      <div class="prof-name" id="profName">Pyöräilijä</div>
+      <div class="prof-acc" id="profAcc">Ei kirjautunut</div>
+    </div>
+    <button class="round plain" id="openSettings" aria-label="Asetukset"><svg><use href="#i-gear"/></svg></button>
   </div>
-  <div class="history" id="history"></div>
 
-  <h2>Asetukset</h2>
-  <label for="numbers">SOS-numerot</label>
-  <textarea id="numbers" rows="3" placeholder="+358401234567&#10;+358501234567" inputmode="tel"></textarea>
-  <div class="note">Yksi numero per rivi.</div>
-  <label for="message">SOS-viesti</label>
-  <textarea id="message" rows="3"></textarea>
-  <div class="row"><span>Liitä sijainti viestiin</span><button class="switch on" id="loc" aria-label="Liitä sijainti"></button></div>
-  <label>AI-reitit</label>
-  <div class="seg" id="provider">
-    <button data-p="claude">Claude</button>
-    <button data-p="openai">ChatGPT</button>
+  <div class="tiles">
+    <div class="tile"><div class="v" id="tRides">0</div><div class="k">Lenkit</div></div>
+    <div class="tile"><div class="v" id="tKm">0</div><div class="k" id="tKmUnit">km</div></div>
+    <div class="tile"><div class="v" id="tTime">0 h</div><div class="k">Aika</div></div>
   </div>
-  <input id="apikey" type="password" autocomplete="off">
-  <div class="note">Valinnainen. Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avain tallennetaan vain tälle laitteelle.</div>
-  <button class="primary" id="saveSettings">Tallenna</button>
-  <div class="saved" id="saved">Tallennettu</div>
 
-  <button class="secondary" id="checkUpdate">Tarkista päivitykset</button>
-  <div class="version" id="version"></div>
+  <div class="card-block">
+    <div class="block-head"><span>Tämä viikko</span><span class="block-val" id="weekVal">0 km</span></div>
+    <div class="week" id="week"></div>
+  </div>
+
+  <div class="card-block">
+    <div class="block-head"><span>Viimeisimmät lenkit</span></div>
+    <div class="history" id="history"></div>
+  </div>
+
+  <button class="row-link" id="openSettings2">
+    <svg class="lead"><use href="#i-gear"/></svg><span>Asetukset</span><svg class="chev"><use href="#i-chevron"/></svg>
+  </button>
 </section>
 
-<!-- ============ TAB BAR ============ -->
+<!-- ================= SETTINGS (pushed page) ================= -->
+<section class="page scroll" id="settings">
+  <header class="page-head">
+    <button class="back" data-close="settings"><svg><use href="#i-back"/></svg>Profiili</button>
+    <h1>Asetukset</h1>
+  </header>
+
+  <h3>Tili</h3>
+  <div class="group">
+    <button class="cell link" id="accountCell">
+      <svg class="lead"><use href="#i-cloud"/></svg>
+      <span class="cell-main"><span id="accTitle">Kirjaudu sisään</span><small id="accSub">Tallenna reitit ja lenkit pilveen</small></span>
+      <svg class="chev"><use href="#i-chevron"/></svg>
+    </button>
+    <label class="cell"><span class="cell-main">Nimi</span><input class="cell-input" id="setName" type="text" placeholder="Nimesi" autocomplete="off"></label>
+  </div>
+
+  <h3>Ajo</h3>
+  <div class="group">
+    <div class="cell"><span class="cell-main">Yksiköt</span>
+      <div class="seg small" data-setting="units"><button data-v="km">km</button><button data-v="mi">mi</button></div></div>
+    <div class="cell"><span class="cell-main">Automaattinen tauko<small>Pysähtyessä tauko, jatkuu kun lähdet</small></span><button class="switch" data-setting="autoPause"></button></div>
+    <div class="cell"><span class="cell-main">Näyttö pysyy päällä</span><button class="switch" data-setting="keepAwake"></button></div>
+    <div class="cell"><span class="cell-main">Värinä</span><button class="switch" data-setting="haptics"></button></div>
+  </div>
+
+  <h3>Kartta ja reitit</h3>
+  <div class="group">
+    <div class="cell col"><span class="cell-main">Kartan tyyli</span>
+      <div class="seg" data-setting="mapStyle"><button data-v="liberty">Värikäs</button><button data-v="positron">Vaalea</button><button data-v="dark">Tumma</button></div></div>
+    <div class="cell col"><span class="cell-main">Ehdotettujen lenkkien pituus</span>
+      <div class="seg" data-setting="routeLen"><button data-v="short">Lyhyet</button><button data-v="normal">Normaalit</button><button data-v="long">Pitkät</button></div></div>
+  </div>
+
+  <h3>SOS</h3>
+  <div class="group">
+    <div class="cell col"><span class="cell-main">Numerot<small>Yksi per rivi</small></span>
+      <textarea id="setNumbers" rows="2" placeholder="+358401234567" inputmode="tel"></textarea></div>
+    <div class="cell col"><span class="cell-main">Viesti</span>
+      <textarea id="setMessage" rows="2"></textarea></div>
+    <div class="cell"><span class="cell-main">Liitä sijainti</span><button class="switch" data-setting="sosLocation"></button></div>
+    <div class="cell"><span class="cell-main">Pidon kesto</span>
+      <div class="seg small" data-setting="sosHold"><button data-v="3">3 s</button><button data-v="5">5 s</button><button data-v="10">10 s</button></div></div>
+  </div>
+
+  <h3>AI-reitit</h3>
+  <div class="group">
+    <div class="cell"><span class="cell-main">Palvelu</span>
+      <div class="seg small" data-setting="aiProvider"><button data-v="claude">Claude</button><button data-v="openai">ChatGPT</button></div></div>
+    <div class="cell col"><span class="cell-main" id="keyLabel">API-avain</span>
+      <input class="field" id="setKey" type="password" autocomplete="off" placeholder="Valinnainen"></div>
+  </div>
+  <p class="foot">Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avaimet pysyvät vain tällä laitteella.</p>
+
+  <h3>Sovellus</h3>
+  <div class="group">
+    <button class="cell link" id="checkUpdate"><span class="cell-main">Tarkista päivitykset</span><span class="cell-val" id="version"></span></button>
+    <button class="cell link danger" id="clearHistory"><span class="cell-main">Tyhjennä lenkkihistoria</span></button>
+  </div>
+  <div class="page-pad"></div>
+</section>
+
+<!-- ================= LOGIN (pushed page) ================= -->
+<section class="page scroll" id="login">
+  <header class="page-head">
+    <button class="back" data-close="login"><svg><use href="#i-back"/></svg>Asetukset</button>
+    <h1 id="loginTitle">Kirjaudu</h1>
+  </header>
+  <div id="loginForm">
+    <p class="lead-text">Kirjautuneena reittisi ja lenkkisi tallentuvat pilveen ja näkyvät kaikilla laitteillasi.</p>
+    <div class="group">
+      <label class="cell col"><span class="cell-main">Sähköposti</span><input class="field" id="email" type="email" autocomplete="email" inputmode="email"></label>
+      <label class="cell col"><span class="cell-main">Salasana</span><input class="field" id="password" type="password" autocomplete="current-password"></label>
+    </div>
+    <button class="primary" id="signIn">Kirjaudu sisään</button>
+    <button class="secondary" id="signUp">Luo tili</button>
+    <p class="foot center" id="loginMsg"></p>
+  </div>
+  <div id="loggedIn" hidden>
+    <div class="group">
+      <div class="cell"><span class="cell-main">Kirjautunut<small id="loggedEmail"></small></span></div>
+      <button class="cell link" id="syncNow"><span class="cell-main">Synkronoi nyt</span><span class="cell-val" id="syncState"></span></button>
+    </div>
+    <button class="secondary danger" id="signOut">Kirjaudu ulos</button>
+  </div>
+  <div id="noCloud" hidden>
+    <p class="lead-text">Pilvitallennusta ei ole vielä otettu käyttöön tässä versiossa. Reittisi tallentuvat silti tälle laitteelle.</p>
+  </div>
+</section>
+
+<!-- ================= TAB BAR ================= -->
 <nav class="tabbar">
   <span class="indicator" id="indicator"></span>
   <button data-tab="home" aria-label="Koti">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></svg>
+    <svg viewBox="0 0 24 24"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></svg><span>Koti</span>
   </button>
   <button data-tab="record" aria-label="Tallenna">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><circle class="rec-dot" cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle class="rec-dot" cx="12" cy="12" r="4"/></svg><span>Ajo</span>
   </button>
   <button data-tab="profile" aria-label="Profiili">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c1.2-3.8 4-5.5 7.5-5.5s6.3 1.7 7.5 5.5"/></svg>
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c1.2-3.8 4-5.5 7.5-5.5s6.3 1.7 7.5 5.5"/></svg><span>Profiili</span>
   </button>
 </nav>
 
-<!-- ride summary -->
+<!-- ================= SHEETS ================= -->
+<div class="backdrop" id="backdrop"></div>
+
 <div class="sheet" id="summary">
-  <h2>Lenkki</h2>
-  <div class="grid">
+  <div class="grabber"></div>
+  <h2>Lenkki valmis</h2>
+  <div class="sum-grid">
     <div><div class="v" id="sTime">0:00</div><div class="k">Aika</div></div>
-    <div><div class="v" id="sDist">0.00</div><div class="k">km</div></div>
+    <div><div class="v" id="sDist">0.00</div><div class="k" id="sDistUnit">km</div></div>
     <div><div class="v" id="sAvg">0</div><div class="k">Keskinopeus</div></div>
     <div><div class="v" id="sMax">0</div><div class="k">Huippu</div></div>
   </div>
+  <button class="secondary" id="saveRide"><svg><use href="#i-bookmark"/></svg>Tallenna reitiksi</button>
   <button class="primary" id="newRide">Valmis</button>
+</div>
+
+<div class="sheet" id="nameSheet">
+  <div class="grabber"></div>
+  <h2>Tallenna reitti</h2>
+  <input class="field big" id="routeName" type="text" autocomplete="off" enterkeyhint="done">
+  <div class="sheet-btns">
+    <button class="secondary" id="nameCancel">Peruuta</button>
+    <button class="primary" id="nameOk">Tallenna</button>
+  </div>
 </div>
 
 <div class="flash"></div>
