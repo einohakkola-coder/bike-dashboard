@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.5';   // bump here and in version.json on every release
+const VERSION = '2.6';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -18,7 +18,7 @@ const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
   name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true,
   mapStyle: 'liberty', routeLen: 'normal',
-  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'shortcut',
+  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms',
   aiProvider: 'claude', keyClaude: '', keyOpenai: ''
 };
 const S = (() => {
@@ -799,9 +799,8 @@ function renderSettings() {
     seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(S[seg.dataset.setting]))));
   document.querySelectorAll('.switch[data-setting]').forEach(sw => sw.classList.toggle('on', !!S[sw.dataset.setting]));
   $('setName').value = S.name;
-  $('setNumbers').value = S.sosNumbers.join('\n');
+  renderNumbers();
   $('setMessage').value = S.sosMessage;
-  $('shortcutHelp').hidden = $('testShortcut').hidden = S.sosAction !== 'shortcut';
   renderKeyField();
   $('version').textContent = VERSION;
   $('accTitle').textContent = user ? user.email : 'Kirjaudu sisään';
@@ -827,7 +826,46 @@ document.querySelectorAll('.switch[data-setting]').forEach(sw => sw.addEventList
 }));
 const debounce = (fn, ms = 400) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 $('setName').addEventListener('input', debounce(e => setSetting('name', e.target.value.trim())));
-$('setNumbers').addEventListener('input', debounce(e => setSetting('sosNumbers', e.target.value.split(/[\n,;]+/).map(s => s.replace(/[^\d+]/g, '')).filter(Boolean))));
+
+/* ---------- SOS number list ---------- */
+const cleanNum = v => v.replace(/[^\d+]/g, '');
+const validNum = v => /^\+?\d{6,15}$/.test(cleanNum(v));
+function saveNumbers() {
+  const vals = [...$('numList').querySelectorAll('input')].map(i => cleanNum(i.value)).filter(validNum);
+  setSetting('sosNumbers', vals);
+}
+const saveNumbersSoon = debounce(saveNumbers, 400);
+function numRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'num-row';
+  row.innerHTML = `<span class="num-badge"></span>
+    <input class="field" type="tel" inputmode="tel" autocomplete="tel" placeholder="+358 40 123 4567">
+    <button class="icon-btn del" aria-label="Poista numero"><svg><use href="#i-trash"/></svg></button>`;
+  const input = row.querySelector('input');
+  input.value = value;
+  input.addEventListener('input', () => { input.classList.remove('bad'); saveNumbersSoon(); });
+  input.addEventListener('blur', () => input.classList.toggle('bad', !!input.value.trim() && !validNum(input.value)));
+  row.querySelector('.del').addEventListener('click', () => {
+    buzz(10);
+    row.classList.add('out');
+    setTimeout(() => { row.remove(); renumber(); saveNumbers(); }, 200);
+  });
+  return row;
+}
+function renumber() { $('numList').querySelectorAll('.num-badge').forEach((b, i) => b.textContent = i + 1); }
+function renderNumbers() {
+  const list = $('numList');
+  list.innerHTML = '';
+  S.sosNumbers.forEach(n => list.appendChild(numRow(n)));
+  renumber();
+}
+function addNumber() {
+  const row = numRow();
+  $('numList').appendChild(row);
+  renumber();
+  row.querySelector('input').focus();
+}
+$('addNum').addEventListener('click', () => { buzz(8); addNumber(); });
 $('setMessage').addEventListener('input', debounce(e => setSetting('sosMessage', e.target.value.trim() || DEFAULT_MSG)));
 $('setKey').addEventListener('input', debounce(e => setSetting(S.aiProvider === 'openai' ? 'keyOpenai' : 'keyClaude', e.target.value.trim())));
 
@@ -839,7 +877,6 @@ function onSettingChanged(k) {
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
-  if (k === 'sosAction') $('shortcutHelp').hidden = $('testShortcut').hidden = S.sosAction !== 'shortcut';
   if (k === 'sosHold') $('sos').style.setProperty('--hold', `${S.sosHold}s`);
 }
 
@@ -1013,34 +1050,20 @@ function showCount(n) {
   c.classList.remove('tick'); void c.offsetWidth; c.classList.add('show', 'tick');
   navigator.vibrate?.(40);   // always, even if haptics are off: this is an emergency action
 }
-/* ---------- automatic SMS through an iOS Shortcut named "Ride SOS" ---------- */
-const SHORTCUT = 'Ride SOS';
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function sosText() {
   let body = S.sosMessage || DEFAULT_MSG;
-  if (S.sosLocation && lastFix) body += `
-Sijainti: https://maps.google.com/?q=${lastFix.lat.toFixed(6)},${lastFix.lon.toFixed(6)}`;
+  if (S.sosLocation && lastFix) body += `\nSijainti: https://maps.google.com/?q=${lastFix.lat.toFixed(6)},${lastFix.lon.toFixed(6)}`;
   return body;
 }
-function runShortcut(text) {
-  location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}`;
-}
-$('testShortcut').addEventListener('click', () => {
-  if (!isIOS()) return toast('Auto-SMS toimii vain iPhonessa');
-  runShortcut(`Testi: ${S.name || 'Ride'} SOS-hälytys toimii. Tähän ei tarvitse vastata.`);
-});
 
 function fireSOS() {
   endHold();
   navigator.vibrate?.([200, 100, 200]);
   const nums = S.sosNumbers;
-  if (S.sosAction === 'shortcut' && isIOS()) {
-    runShortcut(sosText());
-    return;
-  }
   if (!nums.length) {
     showTab('profile'); renderSettings(); openPage('settings');
-    setTimeout(() => $('setNumbers').focus(), 450);
+    setTimeout(addNumber, 450);
     toast('Lisää ensin SOS-numerot');
     return;
   }
@@ -1062,7 +1085,7 @@ sos.addEventListener('contextmenu', e => e.preventDefault());
    ===================================================================== */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 delete S.keyDiscord;   // removed in 2.4
-if (!store.get('migrated24', false)) { S.sosAction = 'shortcut'; store.set('migrated24', true); }   // 2.4 made auto-SMS the default
+if (S.sosAction !== 'call') S.sosAction = 'sms';   // the Shortcut and 'none' options were removed
 store.set('settings', S);
 applyMapStyle();
 onSettingChanged('sosHold');

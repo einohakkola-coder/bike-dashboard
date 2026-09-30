@@ -282,6 +282,19 @@ textarea, .field {
 }
 textarea:focus, .field:focus { border-color: rgba(10,132,255,.6); }
 .field.big { font-size: 18px; padding: 16px; margin-top: 18px; }
+.num-list { display: flex; flex-direction: column; gap: 8px; }
+.num-list:empty { display: none; }
+.num-row { display: flex; align-items: center; gap: 8px; animation: rise .3s var(--ease) both; }
+.num-row.out { animation: fadeout .2s var(--ease) forwards; }
+@keyframes fadeout { to { opacity: 0; transform: translateX(-12px); } }
+.num-badge { width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); color: var(--fg-2); font-size: 12px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.num-row:first-child .num-badge { background: rgba(255,59,48,.16); color: var(--red); }
+.num-row .field { flex: 1; min-width: 0; }
+.num-row .field.bad { border-color: rgba(255,59,48,.6); }
+.num-row .del { color: var(--dim); }
+.num-row .del:active { color: var(--red); }
+.add-num { display: flex; align-items: center; justify-content: center; gap: 6px; height: 44px; border-radius: 12px; border: 1px dashed var(--line-2); color: var(--blue); font-size: 15px; font-weight: 600; }
+.add-num svg { width: 18px; height: 18px; stroke-width: 2.2; }
 .foot { font-size: 12px; color: var(--dim); line-height: 1.5; margin: 8px 4px 0; }
 .foot.center { text-align: center; margin-top: 14px; }
 .lead-text { font-size: 15px; color: var(--fg-2); line-height: 1.5; margin: 14px 4px 20px; }

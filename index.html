@@ -171,16 +171,10 @@
   <h3>SOS</h3>
   <div class="group">
     <div class="cell col"><span class="cell-main">Kun SOS laukeaa</span>
-      <div class="seg" data-setting="sosAction"><button data-v="shortcut">Auto-SMS</button><button data-v="call">Soitto</button><button data-v="sms">Viestit-appi</button></div></div>
-    <div class="cell col" id="shortcutHelp"><span class="cell-main">Auto-SMS iPhonen Pikakomennoilla
-      <small>Tekstiviesti lähtee ilman lisänapautuksia omalla liittymälläsi. Tee kerran:<br>
-      1. Avaa Pikakomennot-appi → + → nimeksi <b>Ride SOS</b><br>
-      2. Lisää toiminto <b>Lähetä viesti</b> → viestiksi <b>Pikakomennon syöte</b> → vastaanottajiksi SOS-henkilösi<br>
-      3. Avaa toiminnon lisäasetukset ja poista <b>Näytä suoritettaessa</b><br>
-      4. Paina alla olevaa testinappia ja valitse iOS:n kysymykseen <b>Salli aina</b></small></span></div>
-    <button class="cell link" id="testShortcut"><span class="cell-main">Lähetä testiviesti</span></button>
-    <div class="cell col"><span class="cell-main">Numerot<small>Soittoa ja Viestit-appia varten. Puhelu menee ensimmäiseen.</small></span>
-      <textarea id="setNumbers" rows="2" placeholder="+358401234567" inputmode="tel"></textarea></div>
+      <div class="seg" data-setting="sosAction"><button data-v="sms">Tekstiviesti</button><button data-v="call">Soitto</button></div></div>
+    <div class="cell col"><span class="cell-main">SOS-numerot<small>Tekstiviesti menee kaikille. Puhelu menee ensimmäiseen.</small></span>
+      <div class="num-list" id="numList"></div>
+      <button class="add-num" id="addNum"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Lisää numero</button></div>
     <div class="cell col"><span class="cell-main">Viesti</span>
       <textarea id="setMessage" rows="2"></textarea></div>
     <div class="cell"><span class="cell-main">Liitä sijainti</span><button class="switch" data-setting="sosLocation"></button></div>
