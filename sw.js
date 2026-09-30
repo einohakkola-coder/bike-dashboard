@@ -1,5 +1,5 @@
-const CACHE = 'ride-v11';
-const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'ride-v12';
+const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

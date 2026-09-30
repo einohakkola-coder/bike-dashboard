@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.6';   // bump here and in version.json on every release
+const VERSION = '2.7';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -169,6 +169,8 @@ function closePage() {
   (pageStack.length ? $(pageStack.at(-1)) : $('view-profile')).classList.remove('covered');
 }
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePage));
+// the large page title scrolls away and a small one appears in the bar, like iOS
+document.querySelectorAll('.page').forEach(p => p.addEventListener('scroll', () => p.classList.toggle('scrolled', p.scrollTop > 44), { passive: true }));
 
 function openSheet(id) { $('backdrop').classList.add('show'); $(id).classList.add('open'); }
 function closeSheet(id) {
@@ -769,8 +771,6 @@ function renderProfile() {
   });
   const max = Math.max(...days.map(d => d.v), 0.1);
   const total = days.reduce((a, d) => a + d.v, 0);
-  const weekHead = document.querySelector('.card-block .block-head span');
-  weekHead.textContent = 'Viimeiset 7 päivää';
   $('weekVal').textContent = `${total.toFixed(1)} ${dUnit()}`;
   $('week').innerHTML = days.map((d, i) =>
     `<button class="bar${d.today ? ' today' : ''}" data-v="${d.v.toFixed(1)}" data-l="${d.label}" aria-label="${d.label} ${d.v.toFixed(1)} ${dUnit()}">
@@ -973,7 +973,7 @@ function renderLogin() {
   $('noCloud').hidden = cloud.enabled;
   $('loginForm').hidden = !cloud.enabled || !!user;
   $('loggedIn').hidden = !cloud.enabled || !user;
-  $('loginTitle').textContent = user ? 'Tili' : 'Kirjaudu';
+  $('loginTitle').textContent = $('loginBarTitle').textContent = user ? 'Tili' : 'Kirjaudu';
   if (user) $('loggedEmail').textContent = user.email;
   $('loginMsg').textContent = '';
 }
