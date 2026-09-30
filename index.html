@@ -14,24 +14,6 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.min.css">
 <link rel="stylesheet" href="app.css">
-<script>
-  // iOS home-screen apps with a translucent status bar report a viewport that is short by the status-bar height,
-  // leaving a black strip at the bottom. Measure the missing height so full-screen layers can reach the real edge.
-  (function () {
-    function fit() {
-      var gap = 0;
-      if (navigator.standalone === true) {
-        var full = innerHeight > innerWidth ? screen.height : screen.width;
-        gap = full - innerHeight;
-        if (gap < 0 || gap > 100) gap = 0;
-      }
-      document.documentElement.style.setProperty('--ios-gap', gap + 'px');
-    }
-    fit();
-    addEventListener('resize', fit);
-    addEventListener('orientationchange', function () { setTimeout(fit, 300); });
-  })();
-</script>
 <title>Ride</title>
 </head>
 <body>

@@ -467,11 +467,6 @@ body.riding:not(.paused) .rec-dot { animation: blink 1.6s infinite; }
 
 .haptic-hack { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
 
-/* stretch full-screen layers down to the real screen edge on iOS home-screen apps (see --ios-gap in index.html) */
-.view, .page, .backdrop, .onboard, .sos-screen, .sheet { bottom: calc(-1 * var(--ios-gap, 0px)); }
-.tabbar { bottom: calc(var(--tab-bottom) - var(--ios-gap, 0px)); }
-.toast { bottom: calc(var(--tab-space) + 4px - var(--ios-gap, 0px)); }
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
