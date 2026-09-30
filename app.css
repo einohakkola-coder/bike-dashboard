@@ -1,5 +1,5 @@
 :root {
-  --tab-space: calc(var(--tab-h) + env(safe-area-inset-bottom) + 22px);   /* room for the floating tab bar */
+  --tab-space: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px);   /* room above the docked tab bar */
   --bg: #000;
   --surface: #121214;
   --surface-2: #1c1c1f;
@@ -66,7 +66,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .leaflet-control-attribution { background: rgba(255,255,255,.55) !important; color: #666 !important; font-size: 8px !important; line-height: 1.5 !important;
   border-radius: 8px 0 0 0; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px !important; }
 .leaflet-control-attribution a { color: #333 !important; }
-#homeMap .leaflet-bottom { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px); }
+#homeMap .leaflet-bottom { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 2px); }
 .me-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(10,132,255,.5); animation: me 2s infinite; }
 @keyframes me { 0% { box-shadow: 0 0 0 0 rgba(10,132,255,.45); } 70% { box-shadow: 0 0 0 16px rgba(10,132,255,0); } 100% { box-shadow: 0 0 0 0 rgba(10,132,255,0); } }
 
@@ -117,9 +117,9 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .empty-card p { font-size: 13px; color: var(--fg-2); margin-top: 4px; line-height: 1.45; }
 
 /* ============ record ============ */
-#view-record { padding: calc(env(safe-area-inset-top) + 8px) 10px var(--tab-space); }
-.map-wrap { position: relative; flex: 1; border-radius: 32px; overflow: hidden; min-height: 150px; box-shadow: 0 0 0 1px var(--line); }
-.map-top { position: absolute; z-index: 500; left: 10px; right: 10px; top: 10px; }
+#view-record { padding: 0 0 calc(var(--tab-h) + env(safe-area-inset-bottom) + 10px); }
+.map-wrap { position: relative; flex: 1; border-radius: 0 0 34px 34px; overflow: hidden; min-height: 150px; }
+.map-top { position: absolute; z-index: 500; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 8px); }
 .search { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 6px 0 14px; border-radius: 23px; }
 .search > svg { width: 18px; height: 18px; color: var(--fg-2); }
 .search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--fg); font: inherit; font-size: 16px; }
@@ -168,7 +168,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .stats span svg { width: 13px; height: 13px; stroke-width: 2; }
 .stats em { font-style: normal; }
 
-.controls { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; }
+.controls { display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
 .side { width: 66px; height: 66px; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); display: grid; place-items: center; position: relative; }
 .side .ico { width: 24px; height: 24px; grid-area: 1 / 1; transition: opacity .25s, transform .35s var(--ease); }
 .ico-play { opacity: 0; transform: rotate(-90deg) scale(.6); }
@@ -213,6 +213,7 @@ body.sos-holding .flash { opacity: .9; }
 }
 .countdown.show { opacity: 1; }
 .countdown.tick { animation: pop .9s ease-out; }
+.countdown.urgent { font-weight: 300; text-shadow: 0 0 40px rgba(255,59,48,.6); }
 @keyframes pop { 0% { transform: scale(1.25); opacity: .4; } 25% { transform: scale(1); opacity: 1; } 100% { transform: scale(.92); opacity: .85; } }
 
 /* ============ profile ============ */
@@ -349,11 +350,11 @@ textarea:focus, .field:focus { border-color: rgba(10,132,255,.6); box-shadow: 0 
 
 /* ============ tab bar ============ */
 .tabbar {
-  position: fixed; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom) + 10px); z-index: 800;
-  height: var(--tab-h); padding: 6px;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 800;
+  height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding: 6px 10px calc(env(safe-area-inset-bottom) + 0px);
   display: grid; grid-template-columns: repeat(3, 1fr);
-  background: rgba(22,22,24,.82); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-  border-radius: calc(var(--tab-h) / 2); box-shadow: inset 0 0 0 1px var(--line), 0 12px 32px rgba(0,0,0,.45);
+  background: rgba(18,18,20,.86); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border-radius: 26px 26px 0 0; box-shadow: inset 0 1px 0 var(--line), 0 -8px 30px rgba(0,0,0,.35);
 }
 .tabbar button { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--dim); border-radius: 24px; }
 .tabbar button:active { transform: scale(.92); }
@@ -367,8 +368,8 @@ body.riding .tabbar button[data-tab=record] { color: var(--red); }
 body.riding:not(.paused) .rec-dot { animation: blink 1.6s infinite; }
 @keyframes blink { 50% { opacity: .35; } }
 .indicator {
-  position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 3); pointer-events: none;
-  border-radius: 24px; background: rgba(255,255,255,.09); transition: transform .45s var(--spring);
+  position: absolute; top: 6px; left: 10px; height: calc(var(--tab-h) - 12px); width: calc((100% - 20px) / 3); pointer-events: none;
+  border-radius: 22px; background: rgba(255,255,255,.09); transition: transform .45s var(--spring);
 }
 
 /* ============ sheets ============ */
@@ -439,6 +440,8 @@ body.riding:not(.paused) .rec-dot { animation: blink 1.6s infinite; }
 .ob-dots:empty { padding: 0 0 14px; }
 .ob-dots i { width: 7px; height: 7px; border-radius: 4px; background: #3a3a3c; transition: width .35s var(--ease), background .35s; }
 .ob-dots i.on { width: 20px; background: var(--fg); }
+
+.haptic-hack { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

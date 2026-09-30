@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.9';   // bump here and in version.json on every release
+const VERSION = '3.0';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -814,7 +814,6 @@ function renderProfile() {
     : '<div class="empty">Ei vielä lenkkejä. Aloita Ajo-välilehdeltä.</div>';
 }
 $('openSettings').addEventListener('click', () => { renderSettings(); openPage('settings'); });
-$('openSettings2').addEventListener('click', () => { renderSettings(); openPage('settings'); });
 
 /* =====================================================================
    Settings page
@@ -1056,9 +1055,52 @@ $('syncNow').addEventListener('click', () => startupSync());
    SOS (hold)
    ===================================================================== */
 let holdTimer = null, countTimer = null;
+
+/* ---------- countdown sound + vibration (last three seconds, Pixel-style) ---------- */
+let audio = null;
+function unlockAudio() {
+  // must happen inside the touch itself, or iOS keeps the sound muted
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';   // play even with the iPhone on silent
+    audio ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+  } catch {}
+}
+function tone(freq, start, dur, vol = .55) {
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = 'square';
+  o.frequency.setValueAtTime(freq, start);
+  g.gain.setValueAtTime(0.0001, start);
+  g.gain.exponentialRampToValueAtTime(vol, start + .01);
+  g.gain.setValueAtTime(vol, start + dur - .03);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(start); o.stop(start + dur + .02);
+}
+function alarmBeep(n) {
+  if (!audio) return;
+  const t = audio.currentTime + .01;
+  // short double beep that climbs in pitch as the count runs out: 3 → 2 → 1
+  const f = { 3: 1046, 2: 1175, 1: 1318 }[n] || 988;
+  tone(f, t, .14); tone(f, t + .2, .14);
+}
+function alarmFinal() {
+  if (!audio) return;
+  const t = audio.currentTime + .01;
+  tone(1568, t, .5, .6);
+}
+// real vibration where the browser has it (Android); on iPhone a hidden switch toggle gives a haptic tick
+function strongBuzz(pattern) {
+  if (navigator.vibrate) { navigator.vibrate(pattern); return; }
+  const sw = $('hapticSwitch');
+  const ticks = Array.isArray(pattern) ? Math.ceil(pattern.length / 2) : 1;
+  for (let i = 0; i < ticks; i++) setTimeout(() => sw.parentElement.click(), i * 120);
+}
+
 function startHold(e) {
   e.preventDefault();
   if (holdTimer) return;
+  unlockAudio();
   const secs = S.sosHold || 5;
   $('sos').style.setProperty('--hold', `${secs}s`);
   $('sos').classList.add('holding');
@@ -1081,7 +1123,9 @@ function showCount(n) {
   c.textContent = n;
   $('sosLabel').textContent = n;
   c.classList.remove('tick'); void c.offsetWidth; c.classList.add('show', 'tick');
-  navigator.vibrate?.(40);   // always, even if haptics are off: this is an emergency action
+  c.classList.toggle('urgent', n <= 3);
+  // last three seconds: alarm beep + strong vibration, always on (even with haptics off) since this is an emergency action
+  if (n <= 3) { alarmBeep(n); strongBuzz([220, 80, 220]); }
 }
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function sosText() {
@@ -1092,7 +1136,8 @@ function sosText() {
 
 function fireSOS() {
   endHold();
-  navigator.vibrate?.([200, 100, 200]);
+  alarmFinal();
+  strongBuzz([500]);
   const nums = S.sosNumbers;
   if (!nums.length) {
     showTab('profile'); renderSettings(); openPage('settings');
