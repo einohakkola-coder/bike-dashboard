@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.8';   // bump here and in version.json on every release
+const VERSION = '2.9';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -77,13 +77,6 @@ function haversine(a, b) {
   const dLat = r(b.lat - a.lat), dLon = r(b.lon - a.lon);
   const h = Math.sin(dLat/2)**2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLon/2)**2;
   return 2 * R * Math.asin(Math.sqrt(h));
-}
-function offset(p, dist, bearingDeg) {
-  const R = 6371000, d = dist / R, b = bearingDeg * Math.PI / 180;
-  const la1 = p.lat * Math.PI / 180, lo1 = p.lon * Math.PI / 180;
-  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
-  const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
-  return { lat: la2 * 180 / Math.PI, lon: lo2 * 180 / Math.PI };
 }
 // thin a [[lat,lon]] line so saved routes stay small
 function simplify(line, minM = 12) {
@@ -521,24 +514,8 @@ async function toggleSave(r) {
    ===================================================================== */
 const LENGTHS = { short: [5, 10, 20], normal: [8, 15, 30], long: [20, 40, 60] };
 const targets = () => LENGTHS[S.routeLen] || LENGTHS.normal;
-const DIRS = ['Pohjoinen', 'Koillinen', 'Itäinen', 'Kaakkoinen', 'Eteläinen', 'Lounainen', 'Läntinen', 'Luoteinen'];
-let routesGenerated = false, generating = false, suggested = [], homeLines = [], selected = 0, listMode = 'suggested';
+let routesGenerated = false, generating = false, aiError = '', suggested = [], homeLines = [], selected = 0, listMode = 'suggested';
 const currentList = () => listMode === 'saved' ? D.routes : suggested;
-
-async function loopRoute(start, km, bearing) {
-  let radius = (km * 1000) / (2 * Math.PI * 1.25), best = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const c = offset(start, radius, bearing);
-    const back = (bearing + 180) % 360;
-    const pts = [90, 180, 270].map(a => offset(c, radius, back + a));
-    const r = await route([start, ...pts, start]);
-    if (!best || Math.abs(r.distance - km * 1000) < Math.abs(best.distance - km * 1000)) best = r;
-    const ratio = r.distance / (km * 1000);
-    if (ratio > 0.8 && ratio < 1.25) break;
-    radius /= ratio;
-  }
-  return best;
-}
 
 const OPENAI_MODEL = 'gpt-5';
 const ROUTE_SCHEMA = {
@@ -653,51 +630,36 @@ async function groqIdeas(prompt, key) {
   return JSON.parse((await r.json()).choices[0].message.content).routes;
 }
 
+const hasAiKey = () => !!S[providerKey()];
+
 async function generateRoutes() {
-  if (generating || !lastFix) return;
-  generating = true; routesGenerated = true;
+  if (generating) return;
+  if (!hasAiKey()) { suggested = []; aiError = ''; routesGenerated = true; if (listMode === 'suggested') renderCards(); return; }
+  if (!lastFix) return;
+  generating = true; routesGenerated = true; aiError = '';
   const start = { lat: lastFix.lat, lon: lastFix.lon };
-  const provider = S.aiProvider;
-  const apiKey = S[providerKey()];
   $('regen').classList.add('spin');
-  $('homeStatus').textContent = apiKey ? 'AI suunnittelee reittejä…' : 'Luodaan reittejä…';
+  $('homeStatus').textContent = 'AI suunnittelee reittejä…';
   suggested = [];
   if (listMode === 'suggested') renderCards();
 
   const results = [];
-  if (apiKey) {
-    try {
-      const ideas = await aiIdeas(start, provider, apiKey);
-      for (const idea of ideas.slice(0, 3)) {
-        const maxAway = Math.max(idea.target_km, 5) * 1000 * 0.6;
-        const wps = idea.waypoints.filter(w => haversine(start, w) < maxAway);
-        if (!wps.length) continue;
-        try {
-          const r = await route([start, ...wps, start]);
-          results.push({ ...r, name: idea.name, desc: idea.description, ai: true, kind: 'loop', key: `ai:${idea.name}:${Math.round(r.distance / 100)}` });
-        } catch {}
-      }
-    } catch (e) {
-      console.warn(e);
-      toast(`AI-reitit epäonnistuivat (${e.message}), käytetään automaattisia`, 4500);
+  try {
+    const ideas = await aiIdeas(start, S.aiProvider, S[providerKey()]);
+    for (const idea of (ideas || []).slice(0, 3)) {
+      const maxAway = Math.max(idea.target_km, 5) * 1000 * 0.6;
+      const wps = (idea.waypoints || []).filter(w => haversine(start, w) < maxAway);
+      if (!wps.length) continue;
+      try {
+        const r = await route([start, ...wps, start]);
+        if (r.distance < 1000) continue;
+        results.push({ ...r, name: idea.name, desc: idea.description, ai: true, kind: 'loop', key: `ai:${idea.name}:${Math.round(r.distance / 100)}` });
+      } catch {}
     }
-  }
-  if (!results.length) {
-    const base = Math.floor(Math.random() * 360);
-    const T = targets();
-    for (let i = 0; i < T.length; i++) {
-      // a direction that runs into water or a dead end gives a stub; try the neighbouring directions then
-      for (const turn of [0, 60, -60]) {
-        const bearing = (base + i * 120 + turn + 360) % 360;
-        try {
-          const r = await loopRoute(start, T[i], bearing);
-          if (r.distance < T[i] * 1000 * 0.6) continue;
-          results.push({ ...r, name: `${DIRS[Math.round(bearing / 45) % 8]} lenkki`, desc: 'Lähialueen pyöräteitä pitkin takaisin lähtöpisteeseen.', ai: false, kind: 'loop',
-            key: `loop:${start.lat.toFixed(3)},${start.lon.toFixed(3)}:${Math.round(bearing)}:${T[i]}` });
-          break;
-        } catch {}
-      }
-    }
+    if (!results.length) aiError = 'AI ei löytänyt sopivia reittejä. Kokeile uudelleen.';
+  } catch (e) {
+    console.warn(e);
+    aiError = e.message || 'Tuntematon virhe';
   }
   suggested = results;
   generating = false;
@@ -715,10 +677,14 @@ function renderCards() {
     L.polyline(r.line, { color: '#8e8e93', weight: 4, opacity: .85 }).addTo(homeMap).on('click', () => selectRoute(i, true)));
 
   if (!list.length) {
-    const empty = listMode === 'saved'
-      ? ['Ei vielä omia reittejä', 'Tallenna reitti kirjanmerkki-napista tai lenkin jälkeen, niin se löytyy täältä.']
-      : generating ? ['Luodaan reittejä…', 'Haetaan lähialueen pyöräteitä.'] : ['Ei ehdotuksia', lastFix ? 'Kokeile luoda uudet reitit ✨-napista.' : 'Odotetaan GPS-sijaintia…'];
-    box.innerHTML = `<div class="glass empty-card"><svg><use href="#i-route"/></svg><b>${empty[0]}</b><p>${empty[1]}</p></div>`;
+    let icon = 'i-route', title, text, action = null;
+    if (listMode === 'saved') [title, text] = ['Ei vielä omia reittejä', 'Tallenna reitti kirjanmerkki-napista tai lenkin jälkeen, niin se löytyy täältä.'];
+    else if (!hasAiKey()) { icon = 'i-sparkle'; [title, text] = ['Reittiehdotukset AI:lta', 'Lisää API-avain, niin AI suunnittelee lenkkejä lähellesi. Geminin ja Groqin avaimet ovat ilmaisia.']; action = ['Lisää API-avain', openAiSettings]; }
+    else if (generating) { icon = 'i-sparkle'; [title, text] = ['AI suunnittelee reittejä…', 'Tämä kestää yleensä 10–30 sekuntia.']; }
+    else if (aiError) { [title, text] = ['Reittiehdotukset epäonnistuivat', aiError]; action = ['Yritä uudelleen', () => { routesGenerated = false; generateRoutes(); }]; }
+    else [title, text] = ['Odotetaan sijaintia…', 'Reittiehdotukset tulevat, kun GPS löytää sinut.'];
+    box.innerHTML = `<div class="glass empty-card${generating ? ' busy' : ''}"><svg><use href="#${icon}"/></svg><b>${esc(title)}</b><p>${esc(text)}</p>${action ? `<button class="empty-btn">${action[0]}</button>` : ''}</div>`;
+    if (action) box.querySelector('.empty-btn').addEventListener('click', () => { buzz(10); action[1](); });
     return;
   }
   list.forEach((r, i) => {
@@ -777,6 +743,7 @@ $('cards').addEventListener('scroll', () => {
   }, 120);
 });
 $('regen').addEventListener('click', () => {
+  if (!hasAiKey()) { toast('Lisää ensin API-avain'); return openAiSettings(); }
   if (!lastFix) return toast('Odotetaan GPS-sijaintia…');
   setListMode('suggested');
   routesGenerated = false; generateRoutes();
@@ -798,7 +765,7 @@ function updateGreeting() {
   const h = new Date().getHours();
   const hi = h < 5 ? 'Hyvää yötä' : h < 10 ? 'Huomenta' : h < 17 ? 'Päivää' : h < 22 ? 'Iltaa' : 'Hyvää yötä';
   $('greetHi').textContent = S.name ? `${hi}, ${S.name.split(' ')[0]}` : hi;
-  if (!generating && gotFirstFix) $('homeStatus').textContent = 'Reitit lähelläsi';
+  if (!generating) $('homeStatus').textContent = hasAiKey() ? 'Reitit lähelläsi' : 'Omat reitit ja haku';
 }
 
 /* =====================================================================
@@ -939,7 +906,7 @@ function onSettingChanged(k) {
   if (k === 'units') { renderRide(); renderProfile(); if (listMode) renderCards(); updateNav(); }
   if (k === 'mapStyle') applyMapStyle();
   if (k === 'aiProvider') { renderKeyField(); routesGenerated = false; }
-  if (k.startsWith('key') || k === 'routeLen') routesGenerated = false;
+  if (k.startsWith('key') || k === 'routeLen' || k === 'aiProvider') { routesGenerated = false; aiError = ''; updateGreeting(); if (listMode === 'suggested') renderCards(); }
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
@@ -1147,6 +1114,63 @@ sos.addEventListener('pointerdown', startHold);
 sos.addEventListener('contextmenu', e => e.preventDefault());
 
 /* =====================================================================
+   First-run onboarding: add to home screen, then optional API key
+   ===================================================================== */
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let installPrompt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('obInstall').hidden = false; });
+
+function openAiSettings() {
+  showTab('profile'); renderSettings(); openPage('settings');
+  setTimeout(() => {
+    $('setKey').closest('.group').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => $('setKey').focus({ preventScroll: true }), 450);
+  }, 480);
+}
+
+let obSteps = [], obIdx = 0;
+function startOnboarding() {
+  if (store.get('onboarded', false)) return;
+  obSteps = [];
+  if (!isStandalone()) obSteps.push('obInstallStep');
+  if (!['keyClaude', 'keyOpenai', 'keyGemini', 'keyGroq'].some(k => S[k])) obSteps.push('obAiStep');
+  if (!obSteps.length) { store.set('onboarded', true); return; }
+
+  const how = isIOS()
+    ? [`Napauta <span class="kbd"><svg><use href="#i-share"/></svg></span> Jaa-painiketta selaimen palkissa`, 'Valitse <b>Lisää Koti-valikkoon</b>', 'Avaa Ride kotinäytöltä']
+    : /Android/i.test(navigator.userAgent)
+      ? ['Napauta <span class="kbd">⋮</span> selaimen oikeassa yläkulmassa', 'Valitse <b>Lisää aloitusnäytölle</b> tai <b>Asenna sovellus</b>', 'Avaa Ride aloitusnäytöltä']
+      : ['Avaa tämä sivu puhelimesi selaimella', 'Lisää se kotinäytölle selaimen valikosta', 'Avaa Ride kotinäytöltä'];
+  $('obHow').innerHTML = how.map(t => `<li>${t}</li>`).join('');
+  ['obInstallStep', 'obAiStep'].forEach(id => $(id).hidden = !obSteps.includes(id));
+  $('obDots').innerHTML = obSteps.length > 1 ? obSteps.map(() => '<i></i>').join('') : '';
+  $('onboard').hidden = false;
+  obIdx = 0; showObStep();
+  requestAnimationFrame(() => $('onboard').classList.add('show'));
+}
+function showObStep() {
+  $('obTrack').style.transform = `translateX(${-obIdx * 100}%)`;
+  $('obViewport').style.height = `${$(obSteps[obIdx]).offsetHeight}px`;   // card shrinks/grows to fit each step
+  [...$('obDots').children].forEach((d, i) => d.classList.toggle('on', i === obIdx));
+}
+function obNext() { if (obIdx < obSteps.length - 1) { obIdx++; showObStep(); buzz(8); } else obDone(); }
+function obDone() {
+  store.set('onboarded', true);
+  $('onboard').classList.remove('show');
+  setTimeout(() => $('onboard').hidden = true, 400);
+}
+document.querySelectorAll('[data-ob=next]').forEach(b => b.addEventListener('click', obNext));
+document.querySelectorAll('[data-ob=done]').forEach(b => b.addEventListener('click', obDone));
+$('obKey').addEventListener('click', () => { obDone(); setTimeout(openAiSettings, 250); });
+$('obInstall').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice;
+  installPrompt = null; $('obInstall').hidden = true;
+  if (outcome === 'accepted') obNext();
+});
+
+/* =====================================================================
    Start
    ===================================================================== */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -1160,6 +1184,7 @@ showTab('home');
 renderCards();
 renderRide();
 renderProfile();
+setTimeout(startOnboarding, 700);
 if ('geolocation' in navigator) {
   navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 } else onErr({});

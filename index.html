@@ -44,6 +44,7 @@
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.6 17.5a8.5 8.5 0 1 1 14.8 0"/><path d="M12 13.5l4-4"/><circle cx="12" cy="13.5" r="1" class="fill"/></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
   <symbol id="i-bike" viewBox="0 0 24 24"><circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16 9 9h6.5l3 7M9 9l3.5 7h-7M13 6h2.5"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M8 10.5H6.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H16"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 </svg>
 
@@ -284,6 +285,31 @@
   <div class="sheet-btns">
     <button class="secondary" id="nameCancel">Peruuta</button>
     <button class="primary" id="nameOk">Tallenna</button>
+  </div>
+</div>
+
+<div class="onboard" id="onboard" hidden>
+  <div class="ob-card">
+    <div class="ob-viewport" id="obViewport">
+      <div class="ob-track" id="obTrack">
+        <section class="ob-step" id="obInstallStep">
+          <img class="ob-icon" src="icon-192.png" alt="">
+          <h2>Lisää Ride kotinäytölle</h2>
+          <p>Silloin Ride aukeaa koko näytölle kuin oikea sovellus ja on aina käden ulottuvilla.</p>
+          <ol class="ob-list" id="obHow"></ol>
+          <button class="primary" id="obInstall" hidden>Asenna nyt</button>
+          <button class="primary" data-ob="next">Selvä</button>
+        </section>
+        <section class="ob-step" id="obAiStep">
+          <span class="it ob-big" style="--c:#bf5af2"><svg><use href="#i-sparkle"/></svg></span>
+          <h2>Reittiehdotukset AI:lta</h2>
+          <p>Jos haluat, että AI suunnittelee lenkkejä lähellesi, lisää API-avain asetuksiin. Geminin ja Groqin avaimet ovat ilmaisia.</p>
+          <button class="primary" id="obKey">Lisää API-avain</button>
+          <button class="text-btn" data-ob="done">Ehkä myöhemmin</button>
+        </section>
+      </div>
+    </div>
+    <div class="ob-dots" id="obDots"></div>
   </div>
 </div>
 
