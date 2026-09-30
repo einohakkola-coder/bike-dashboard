@@ -12,6 +12,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.min.css">
 <link rel="stylesheet" href="app.css">
 <title>Ride</title>
 </head>
@@ -71,12 +72,12 @@
     <button class="main" id="main" aria-label="Nopeus">
       <div class="speed"><div class="num" id="speed">0</div><div class="unit">KM/H</div></div>
       <div class="stop"><i></i><span>STOP</span></div>
+      <div class="start">START</div>
     </button>
     <button class="side sos" id="sos" aria-label="SOS">
       <svg class="ring" viewBox="0 0 84 84"><circle cx="42" cy="42" r="39"/></svg>
       <span id="sosLabel">SOS</span>
     </button>
-    <div class="hint" id="hint">Pidä pohjassa 5 s</div>
   </div>
 </section>
 
@@ -97,8 +98,12 @@
   <label for="message">SOS-viesti</label>
   <textarea id="message" rows="3"></textarea>
   <div class="row"><span>Liitä sijainti viestiin</span><button class="switch on" id="loc" aria-label="Liitä sijainti"></button></div>
-  <label for="apikey">AI-reitit · Claude API -avain</label>
-  <input id="apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+  <label>AI-reitit</label>
+  <div class="seg" id="provider">
+    <button data-p="claude">Claude</button>
+    <button data-p="openai">ChatGPT</button>
+  </div>
+  <input id="apikey" type="password" autocomplete="off">
   <div class="note">Valinnainen. Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avain tallennetaan vain tälle laitteelle.</div>
   <button class="primary" id="saveSettings">Tallenna</button>
   <div class="saved" id="saved">Tallennettu</div>
@@ -131,9 +136,12 @@
 </div>
 
 <div class="flash"></div>
+<div class="countdown" id="countdown"></div>
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

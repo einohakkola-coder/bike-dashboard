@@ -29,8 +29,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ---------- maps ---------- */
 .map { position: absolute; inset: 0; background: #0a0a0a; }
-.leaflet-container { background: #0a0a0a; font: inherit; }
-.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) grayscale(.85) brightness(.75) contrast(1.1); }
+.leaflet-container { background: #f2efe9; font: inherit; }
 .leaflet-control-attribution { background: rgba(0,0,0,.5) !important; color: #555 !important; font-size: 9px !important; }
 .leaflet-control-attribution a { color: #777 !important; }
 
@@ -114,8 +113,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 .stats { display: flex; gap: 18px; justify-content: center; padding: 12px 0 10px; font-variant-numeric: tabular-nums; font-size: 15px; color: var(--dim); }
 .stats b { color: var(--fg); font-weight: 500; }
-.gps { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; align-self: center; }
-.gps:empty { display: none; }
+.gps { font-size: 12px; align-self: center; display: flex; align-items: center; gap: 6px; }
+.gps::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.gps.good::before { background: #30d158; }
+.gps.ok::before { background: #ffd60a; }
+.gps.bad::before { background: var(--red); }
 
 .controls { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
 .side { width: 68px; height: 68px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; position: relative; }
@@ -135,16 +137,28 @@ body.paused .main { border-color: var(--red); }
 body.paused .main:active { background: #1a0000; }
 body.paused .speed { display: none; }
 body.paused .stop { display: flex; }
+.start { display: none; font-size: 22px; font-weight: 600; letter-spacing: .16em; color: #000; }
+body:not(.riding) .main { background: var(--fg); }
+body:not(.riding) .main:active { background: #ccc; }
+body:not(.riding) .speed { display: none; }
+body:not(.riding) .start { display: block; }
+body:not(.riding) #pause { opacity: .25; pointer-events: none; }
 
 .sos { border-color: #3a0d0b; color: var(--red); font-weight: 700; font-size: 15px; letter-spacing: .06em; }
 .sos .ring { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); transform: rotate(-90deg); pointer-events: none; }
 .sos .ring circle { fill: none; stroke: var(--red); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 245; stroke-dashoffset: 245; }
 .sos.holding { background: #1a0000; }
 .sos.holding .ring circle { transition: stroke-dashoffset 5s linear; stroke-dashoffset: 0; }
-.hint { position: absolute; left: 0; right: 0; top: -30px; text-align: center; font-size: 13px; color: var(--red); letter-spacing: .08em; opacity: 0; transition: opacity .2s; pointer-events: none; }
-.hint.show { opacity: 1; }
-.flash { position: fixed; inset: 0; background: var(--red); opacity: 0; pointer-events: none; transition: opacity 5s linear; z-index: 900; }
-body.sos-holding .flash { opacity: .14; }
+.countdown {
+  position: fixed; inset: 0; z-index: 910; display: grid; place-items: center; pointer-events: none;
+  font-size: 200px; font-weight: 200; color: var(--red); font-variant-numeric: tabular-nums; line-height: 1;
+  opacity: 0;
+}
+.countdown.show { opacity: 1; }
+.countdown.tick { animation: pop .9s ease-out; }
+@keyframes pop { 0% { transform: scale(1.25); opacity: .4; } 25% { transform: scale(1); opacity: 1; } 100% { transform: scale(.92); opacity: .85; } }
+.flash { position: fixed; inset: 0; opacity: 0; pointer-events: none; transition: opacity .6s ease-out; z-index: 900; }
+body.sos-holding .flash { background: radial-gradient(circle at center, rgba(255,59,48,.35), #000 75%); opacity: .9; }
 
 /* ---------- profile ---------- */
 h1 { font-size: 28px; font-weight: 600; margin-bottom: 20px; }
@@ -169,6 +183,9 @@ textarea:focus, input[type=password]:focus { border-color: #444; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; }
 .switch.on { background: #30d158; }
 .switch.on::after { transform: translateX(20px); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin-bottom: 10px; }
+.seg button { height: 38px; border-radius: 10px; font-size: 14px; color: var(--dim); transition: background .2s, color .2s; }
+.seg button.on { background: #262626; color: var(--fg); }
 .note { font-size: 12px; color: var(--dim); margin-top: 8px; line-height: 1.5; }
 .primary { width: 100%; height: 54px; border-radius: 27px; background: var(--fg); color: #000; font-weight: 600; font-size: 16px; margin-top: 28px; }
 .saved { text-align: center; font-size: 13px; color: #30d158; margin-top: 12px; opacity: 0; transition: opacity .3s; }

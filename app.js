@@ -33,16 +33,16 @@ function offset(p, dist, bearingDeg) {
 /* =====================================================================
    Maps
    ===================================================================== */
-// standard OSM tiles, darkened with a CSS filter (see .leaflet-tile-pane in app.css)
-const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// colour vector map (sharp on retina screens), free and keyless via OpenFreeMap
+const STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const ATTR = '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OSM</a>';
 function makeMap(el) {
   const m = L.map(el, { zoomControl: false, attributionControl: true }).setView([60.17, 24.94], 13);
-  L.tileLayer(TILES, { attribution: ATTR, maxZoom: 19 }).addTo(m);
+  L.maplibreGL({ style: STYLE, attribution: ATTR }).addTo(m);
   m.attributionControl.setPrefix(false);
   return m;
 }
-const meStyle = { radius: 7, color: '#000', weight: 3, fillColor: '#fff', fillOpacity: 1 };
+const meStyle = { radius: 8, color: '#fff', weight: 3, fillColor: '#0a84ff', fillOpacity: 1 };
 const homeMap = makeMap('homeMap');
 const rideMap = makeMap('rideMap');
 const homeMe = L.circleMarker([0, 0], meStyle);
@@ -69,7 +69,7 @@ function showTab(name) {
     if (t === name) $('indicator').style.transform = `translateX(${i * 100}%)`;
   });
   if (name === 'home') { homeMap.invalidateSize(); if (!routesGenerated && lastFix) generateRoutes(); }
-  if (name === 'record') { rideMap.invalidateSize(); if (!rideActive) startRide(); }
+  if (name === 'record') rideMap.invalidateSize();
   if (name === 'profile') renderProfile();
 }
 document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -79,19 +79,32 @@ document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('cli
    ===================================================================== */
 let lastFix = null, lastFixAt = 0, speedKmh = 0;
 let gotFirstFix = false;
+let recent = [];   // fixes from the last few seconds, for computing speed when the device doesn't report it
 
 function onPos(p) {
   const c = p.coords;
-  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: p.timestamp };
-  let v = c.speed;
-  if ((v === null || isNaN(v)) && lastFix) {
-    const dt = (fix.t - lastFix.t) / 1000;
-    v = dt > 0 ? haversine(lastFix, fix) / dt : 0;
+  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: Date.now() };
+
+  // Prefer the speed the phone reports (Doppler-based, most accurate).
+  // Some devices give null or -1 instead; then derive it from distance over the last ~5 s.
+  let v = (typeof c.speed === 'number' && c.speed >= 0 && !isNaN(c.speed)) ? c.speed : null;
+  if (c.accuracy <= 50) {
+    recent.push(fix);
+    recent = recent.filter(f => fix.t - f.t <= 5000);
   }
-  speedKmh = Math.max(0, (v || 0) * 3.6);
-  if (speedKmh < 1.5) speedKmh = 0;
+  if (v === null && recent.length >= 2) {
+    const a = recent[0], dt = (fix.t - a.t) / 1000;
+    if (dt >= 1.5) v = haversine(a, fix) / dt;
+  }
+  if (v !== null) {
+    const k = v * 3.6;
+    speedKmh = k < 1.5 ? 0 : (speedKmh ? speedKmh * 0.35 + k * 0.65 : k);   // light smoothing
+  }
   lastFix = fix; lastFixAt = Date.now();
-  $('gps').textContent = '';
+
+  const g = $('gps');
+  g.textContent = `±${Math.round(c.accuracy)} m`;
+  g.className = 'gps ' + (c.accuracy <= 15 ? 'good' : c.accuracy <= 40 ? 'ok' : 'bad');
 
   const ll = [fix.lat, fix.lon];
   homeMe.setLatLng(ll); rideMe.setLatLng(ll);
@@ -111,6 +124,7 @@ function onPos(p) {
 function onErr(e) {
   const msg = e.code === 1 ? 'Ei sijaintilupaa' : 'Ei GPS';
   $('gps').textContent = msg;
+  $('gps').className = 'gps bad';
   if (!gotFirstFix) $('homeStatus').textContent = msg;
 }
 let wakeLock = null;
@@ -130,7 +144,7 @@ function startRide() {
   rideActive = true; paused = false;
   elapsed = 0; distance = 0; maxSpeed = 0; lastRidePos = null; lastTick = Date.now();
   if (track) track.remove();
-  track = L.polyline([], { color: '#fff', weight: 3, opacity: .55 }).addTo(rideMap);
+  track = L.polyline([], { color: '#ff3b30', weight: 4, opacity: .8 }).addTo(rideMap);
   document.body.classList.add('riding');
   setPaused(false);
   keepAwake();
@@ -168,11 +182,12 @@ function setPaused(v) {
   lastRidePos = null;
 }
 $('pause').addEventListener('click', () => {
-  if (!rideActive) startRide();
-  else setPaused(!paused);
+  if (!rideActive) return;
+  setPaused(!paused);
   navigator.vibrate?.(20);
 });
 $('main').addEventListener('click', () => {
+  if (!rideActive) { startRide(); navigator.vibrate?.(40); return; }
   if (!paused) return;
   navigator.vibrate?.(40);
   const avg = elapsed > 0 ? (distance / 1000) / (elapsed / 3600000) : 0;
@@ -196,7 +211,6 @@ $('newRide').addEventListener('click', () => {
   wakeLock?.release?.();
   $('summary').classList.remove('open');
   renderRide();
-  showTab('home');
 });
 
 /* =====================================================================
@@ -350,39 +364,57 @@ async function loopRoute(start, km, bearing) {
   return best;
 }
 
-async function claudeIdeas(start, apiKey) {
+const OPENAI_MODEL = 'gpt-5';
+const ROUTE_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['routes'],
+  properties: { routes: { type: 'array', items: {
+    type: 'object', additionalProperties: false, required: ['name', 'description', 'target_km', 'waypoints'],
+    properties: {
+      name: { type: 'string' }, description: { type: 'string' }, target_km: { type: 'number' },
+      waypoints: { type: 'array', items: {
+        type: 'object', additionalProperties: false, required: ['name', 'lat', 'lon'],
+        properties: { name: { type: 'string' }, lat: { type: 'number' }, lon: { type: 'number' } }
+      } }
+    }
+  } } }
+};
+
+async function aiIdeas(start, provider, apiKey) {
   let area = '';
   try {
     const rev = await (await fetch(`${GEOCODER}reverse?format=json&zoom=14&accept-language=fi&lat=${start.lat}&lon=${start.lon}`)).json();
     area = rev.display_name || '';
   } catch {}
+  const prompt =
+`Olen pyöräilijä sijainnissa ${start.lat.toFixed(5)}, ${start.lon.toFixed(5)}${area ? ` (${area})` : ''}.
+Suunnittele kolme pyörälenkkiä, jotka alkavat ja päättyvät tähän pisteeseen: noin ${TARGETS.join(', ')} km.
+Valitse jokaiselle 2–4 välipistettä todellisista paikoista, jotka ovat mukavia pyöräillä (puistot, rannat, pyörätiet, näköalapaikat) ja joita pitkin lenkki kulkee järkevässä järjestyksessä ympyränä.
+Anna välipisteille tarkat koordinaatit. Nimi lyhyt (max 3 sanaa), kuvaus yksi lyhyt lause suomeksi.`;
+
+  if (provider === 'openai') {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_schema', json_schema: { name: 'routes', strict: true, schema: ROUTE_SCHEMA } }
+      })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error?.message || `OpenAI ${r.status}`);
+    return JSON.parse(j.choices[0].message.content).routes;
+  }
 
   const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk/+esm');
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-  const schema = {
-    type: 'object', additionalProperties: false, required: ['routes'],
-    properties: { routes: { type: 'array', items: {
-      type: 'object', additionalProperties: false, required: ['name', 'description', 'target_km', 'waypoints'],
-      properties: {
-        name: { type: 'string' }, description: { type: 'string' }, target_km: { type: 'number' },
-        waypoints: { type: 'array', items: {
-          type: 'object', additionalProperties: false, required: ['name', 'lat', 'lon'],
-          properties: { name: { type: 'string' }, lat: { type: 'number' }, lon: { type: 'number' } }
-        } }
-      }
-    } } }
-  };
   const res = await client.beta.messages.create({
     model: 'claude-opus-5',
     max_tokens: 8000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
-    messages: [{ role: 'user', content:
-`Olen pyöräilijä sijainnissa ${start.lat.toFixed(5)}, ${start.lon.toFixed(5)}${area ? ` (${area})` : ''}.
-Suunnittele kolme pyörälenkkiä, jotka alkavat ja päättyvät tähän pisteeseen: noin ${TARGETS.join(', ')} km.
-Valitse jokaiselle 2–4 välipistettä todellisista paikoista, jotka ovat mukavia pyöräillä (puistot, rannat, pyörätiet, näköalapaikat) ja joita pitkin lenkki kulkee järkevässä järjestyksessä ympyränä.
-Anna välipisteille tarkat koordinaatit. Nimi lyhyt (max 3 sanaa), kuvaus yksi lyhyt lause suomeksi.` }]
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: ROUTE_SCHEMA } },
+    messages: [{ role: 'user', content: prompt }]
   });
   if (res.stop_reason === 'refusal') throw new Error('refusal');
   const text = res.content.find(b => b.type === 'text')?.text;
@@ -394,7 +426,8 @@ async function generateRoutes() {
   generating = true; routesGenerated = true;
   const start = { lat: lastFix.lat, lon: lastFix.lon };
   $('regen').classList.add('spin');
-  const apiKey = store.get('apikey', '');
+  const provider = store.get('aiprovider', 'claude');
+  const apiKey = store.get('key_' + provider, '');
   $('homeStatus').textContent = apiKey ? 'AI suunnittelee reittejä…' : 'Luodaan reittejä…';
   $('cards').innerHTML = '';
   homeLines.forEach(l => l.remove()); homeLines = []; homeRoutes = [];
@@ -402,7 +435,7 @@ async function generateRoutes() {
   let results = [];
   if (apiKey) {
     try {
-      const ideas = await claudeIdeas(start, apiKey);
+      const ideas = await aiIdeas(start, provider, apiKey);
       for (const idea of ideas.slice(0, 3)) {
         const maxAway = Math.max(idea.target_km, 5) * 1000 * 0.6;
         const wps = idea.waypoints.filter(w => haversine(start, w) < maxAway);
@@ -414,7 +447,7 @@ async function generateRoutes() {
       }
     } catch (e) {
       console.warn(e);
-      toast('AI-reitit epäonnistuivat, käytetään automaattisia');
+      toast(`AI-reitit epäonnistuivat (${e.message}), käytetään automaattisia`, 4500);
     }
   }
   if (!results.length) {
@@ -441,7 +474,7 @@ function renderCards() {
   box.innerHTML = '';
   homeLines.forEach(l => l.remove());
   homeLines = homeRoutes.map((r, i) =>
-    L.polyline(r.line, { color: '#3a3a3c', weight: 4, opacity: .9 }).addTo(homeMap).on('click', () => selectRoute(i, true)));
+    L.polyline(r.line, { color: '#8e8e93', weight: 4, opacity: .9 }).addTo(homeMap).on('click', () => selectRoute(i, true)));
   homeRoutes.forEach((r, i) => {
     const el = document.createElement('div');
     el.className = 'card';
@@ -459,7 +492,7 @@ function selectRoute(i, scrollCard) {
   if (!homeRoutes[i]) return;
   selected = i;
   homeLines.forEach((l, j) => {
-    l.setStyle(j === i ? { color: '#0a84ff', weight: 5 } : { color: '#3a3a3c', weight: 4 });
+    l.setStyle(j === i ? { color: '#0a84ff', weight: 5 } : { color: '#8e8e93', weight: 4 });
     if (j === i) l.bringToFront();
   });
   [...$('cards').children].forEach((c, j) => c.classList.toggle('sel', j === i));
@@ -484,7 +517,21 @@ $('regen').addEventListener('click', () => { if (!lastFix) return toast('Odoteta
    Profile + settings
    ===================================================================== */
 const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
+const KEY_HINT = { claude: 'Claude API -avain (sk-ant-…)', openai: 'OpenAI API -avain (sk-…)' };
 let includeLoc = store.get('loc', true);
+let editProvider = 'claude', editKeys = {};
+
+// older versions stored a single Claude key as 'apikey'
+if (store.get('apikey', '') && !store.get('key_claude', '')) store.set('key_claude', store.get('apikey', ''));
+
+function showProvider(p) {
+  editKeys[editProvider] = $('apikey').value.trim();
+  editProvider = p;
+  $('apikey').value = editKeys[p] || '';
+  $('apikey').placeholder = KEY_HINT[p];
+  document.querySelectorAll('#provider button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+}
+document.querySelectorAll('#provider button').forEach(b => b.addEventListener('click', () => showProvider(b.dataset.p)));
 
 function renderProfile() {
   const rides = store.get('rides', []);
@@ -502,19 +549,25 @@ function renderProfile() {
 
   $('numbers').value = store.get('numbers', []).join('\n');
   $('message').value = store.get('message', DEFAULT_MSG);
-  $('apikey').value = store.get('apikey', '');
+  editKeys = { claude: store.get('key_claude', ''), openai: store.get('key_openai', '') };
+  editProvider = store.get('aiprovider', 'claude');
+  $('apikey').value = editKeys[editProvider];
+  showProvider(editProvider);
   includeLoc = store.get('loc', true);
   $('loc').classList.toggle('on', includeLoc);
 }
 $('loc').addEventListener('click', () => { includeLoc = !includeLoc; $('loc').classList.toggle('on', includeLoc); });
 $('saveSettings').addEventListener('click', () => {
   const nums = $('numbers').value.split(/[\n,;]+/).map(s => s.replace(/[^\d+]/g, '')).filter(Boolean);
-  const keyChanged = $('apikey').value.trim() !== store.get('apikey', '');
+  editKeys[editProvider] = $('apikey').value.trim();
+  const aiChanged = editProvider !== store.get('aiprovider', 'claude') || editKeys[editProvider] !== store.get('key_' + editProvider, '');
   store.set('numbers', nums);
   store.set('message', $('message').value.trim() || DEFAULT_MSG);
   store.set('loc', includeLoc);
-  store.set('apikey', $('apikey').value.trim());
-  if (keyChanged) routesGenerated = false;
+  store.set('aiprovider', editProvider);
+  store.set('key_claude', editKeys.claude || '');
+  store.set('key_openai', editKeys.openai || '');
+  if (aiChanged) routesGenerated = false;
   $('saved').classList.add('show');
   setTimeout(() => $('saved').classList.remove('show'), 1500);
 });
@@ -529,11 +582,9 @@ function startHold(e) {
   if (holdTimer) return;
   $('sos').classList.add('holding');
   document.body.classList.add('sos-holding');
-  $('hint').classList.add('show');
   let left = 5;
-  $('sosLabel').textContent = left;
-  navigator.vibrate?.(30);
-  countTimer = setInterval(() => { if (--left > 0) { $('sosLabel').textContent = left; navigator.vibrate?.(30); } }, 1000);
+  showCount(left);
+  countTimer = setInterval(() => { if (--left > 0) showCount(left); }, 1000);
   holdTimer = setTimeout(fireSOS, HOLD_MS);
 }
 function endHold() {
@@ -541,8 +592,15 @@ function endHold() {
   holdTimer = countTimer = null;
   $('sos').classList.remove('holding');
   document.body.classList.remove('sos-holding');
-  $('hint').classList.remove('show');
+  $('countdown').classList.remove('show', 'tick');
   $('sosLabel').textContent = 'SOS';
+}
+function showCount(n) {
+  const c = $('countdown');
+  c.textContent = n;
+  $('sosLabel').textContent = n;
+  c.classList.remove('tick'); void c.offsetWidth; c.classList.add('show', 'tick');   // restart the pop animation
+  navigator.vibrate?.(40);
 }
 function fireSOS() {
   endHold();
