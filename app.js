@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.7';   // bump here and in version.json on every release
+const VERSION = '2.8';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -19,7 +19,7 @@ const DEFAULTS = {
   name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true,
   mapStyle: 'liberty', routeLen: 'normal',
   sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms',
-  aiProvider: 'claude', keyClaude: '', keyOpenai: ''
+  aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyGemini: '', keyGroq: ''
 };
 const S = (() => {
   const saved = store.get('settings', null);
@@ -566,6 +566,8 @@ Suunnittele kolme pyörälenkkiä, jotka alkavat ja päättyvät tähän pistees
 Valitse jokaiselle 2–4 välipistettä todellisista paikoista, jotka ovat mukavia pyöräillä (puistot, rannat, pyörätiet, näköalapaikat) ja joita pitkin lenkki kulkee järkevässä järjestyksessä ympyränä.
 Anna välipisteille tarkat koordinaatit. Nimi lyhyt (max 3 sanaa), kuvaus yksi lyhyt lause suomeksi.`;
 
+  if (provider === 'gemini') return geminiIdeas(prompt, apiKey);
+  if (provider === 'groq') return groqIdeas(prompt, apiKey);
   if (provider === 'openai') {
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -595,12 +597,68 @@ Anna välipisteille tarkat koordinaatit. Nimi lyhyt (max 3 sanaa), kuvaus yksi l
   return JSON.parse(res.content.find(b => b.type === 'text')?.text).routes;
 }
 
+// Gemini and Groq retire models often, so ask which ones this key can use and take the best match
+const pickModel = (ids, prefs) => prefs.map(re => ids.find(id => re.test(id))).find(Boolean) || ids[0];
+const apiErr = async (r, name) => { let m = ''; try { const j = await r.json(); m = j.error?.message || ''; } catch {} return new Error(m || `${name} ${r.status}`); };
+
+async function geminiIdeas(prompt, key) {
+  const base = 'https://generativelanguage.googleapis.com/v1beta/';
+  const H = { 'x-goog-api-key': key };
+  const lr = await fetch(`${base}models?pageSize=200`, { headers: H });
+  if (!lr.ok) throw await apiErr(lr, 'Gemini');
+  const ids = (await lr.json()).models
+    .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+    .map(m => m.name.replace('models/', ''));
+  const version = id => parseFloat(id.split('-')[1]) || 0;
+  const flash = ids.filter(id => /^gemini-[\d.]+-flash$/.test(id)).sort((a, b) => version(b) - version(a));
+  const model = flash[0] || pickModel(ids, [/gemini.*flash/, /gemini/]);
+  const call = cfg => fetch(`${base}models/${model}:generateContent`, {
+    method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: cfg })
+  });
+  let r = await call({ responseMimeType: 'application/json', responseJsonSchema: ROUTE_SCHEMA });
+  // older models don't take a JSON schema; fall back to plain JSON mode with the schema in the prompt
+  if (r.status === 400) {
+    prompt += `\n\nVastaa pelkällä JSONilla tämän skeeman mukaan: ${JSON.stringify(ROUTE_SCHEMA)}`;
+    r = await call({ responseMimeType: 'application/json' });
+  }
+  if (!r.ok) throw await apiErr(r, 'Gemini');
+  const text = (await r.json()).candidates?.[0]?.content?.parts?.map(p => p.text || '').join('');
+  if (!text) throw new Error('Gemini ei palauttanut vastausta');
+  return JSON.parse(text).routes;
+}
+
+async function groqIdeas(prompt, key) {
+  const base = 'https://api.groq.com/openai/v1/';
+  const H = { Authorization: `Bearer ${key}` };
+  const lr = await fetch(`${base}models`, { headers: H });
+  if (!lr.ok) throw await apiErr(lr, 'Groq');
+  const ids = (await lr.json()).data
+    .filter(m => m.active !== false)
+    .map(m => m.id)
+    .filter(id => !/whisper|tts|guard|playai|orpheus|distil|compound/i.test(id));
+  const model = pickModel(ids, [/gpt-oss-120b/, /llama-4-maverick/, /llama-3\.3-70b/, /kimi/, /qwen/, /llama/]);
+  const r = await fetch(`${base}chat/completions`, {
+    method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: `Vastaa pelkällä JSONilla tämän skeeman mukaan: ${JSON.stringify(ROUTE_SCHEMA)}` },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' }
+    })
+  });
+  if (!r.ok) throw await apiErr(r, 'Groq');
+  return JSON.parse((await r.json()).choices[0].message.content).routes;
+}
+
 async function generateRoutes() {
   if (generating || !lastFix) return;
   generating = true; routesGenerated = true;
   const start = { lat: lastFix.lat, lon: lastFix.lon };
   const provider = S.aiProvider;
-  const apiKey = provider === 'openai' ? S.keyOpenai : S.keyClaude;
+  const apiKey = S[providerKey()];
   $('regen').classList.add('spin');
   $('homeStatus').textContent = apiKey ? 'AI suunnittelee reittejä…' : 'Luodaan reittejä…';
   suggested = [];
@@ -806,11 +864,19 @@ function renderSettings() {
   $('accTitle').textContent = user ? user.email : 'Kirjaudu sisään';
   $('accSub').textContent = user ? 'Reitit ja lenkit synkronoidaan' : 'Tallenna reitit ja lenkit pilveen';
 }
+const PROVIDERS = {
+  claude: { key: 'keyClaude', label: 'Claude API -avain', ph: 'sk-ant-…', note: 'Avaimen saa osoitteesta console.anthropic.com (maksullinen).' },
+  openai: { key: 'keyOpenai', label: 'OpenAI API -avain', ph: 'sk-…', note: 'Avaimen saa osoitteesta platform.openai.com (maksullinen).' },
+  gemini: { key: 'keyGemini', label: 'Gemini API -avain', ph: 'AIza…', note: 'Ilmaisen avaimen saa osoitteesta aistudio.google.com.' },
+  groq:   { key: 'keyGroq',   label: 'Groq API -avain',   ph: 'gsk_…', note: 'Ilmaisen avaimen saa osoitteesta console.groq.com.' },
+};
+const providerKey = () => (PROVIDERS[S.aiProvider] || PROVIDERS.claude).key;
 function renderKeyField() {
-  const openai = S.aiProvider === 'openai';
-  $('keyLabel').textContent = openai ? 'OpenAI API -avain' : 'Claude API -avain';
-  $('setKey').placeholder = openai ? 'sk-… (valinnainen)' : 'sk-ant-… (valinnainen)';
-  $('setKey').value = openai ? S.keyOpenai : S.keyClaude;
+  const p = PROVIDERS[S.aiProvider] || PROVIDERS.claude;
+  $('keyLabel').textContent = p.label;
+  $('setKey').placeholder = `${p.ph} (valinnainen)`;
+  $('setKey').value = S[p.key] || '';
+  $('keyFoot').textContent = `${p.note} Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avaimet pysyvät vain tällä laitteella.`;
 }
 document.querySelectorAll('.seg[data-setting]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
   const k = seg.dataset.setting;
@@ -867,13 +933,13 @@ function addNumber() {
 }
 $('addNum').addEventListener('click', () => { buzz(8); addNumber(); });
 $('setMessage').addEventListener('input', debounce(e => setSetting('sosMessage', e.target.value.trim() || DEFAULT_MSG)));
-$('setKey').addEventListener('input', debounce(e => setSetting(S.aiProvider === 'openai' ? 'keyOpenai' : 'keyClaude', e.target.value.trim())));
+$('setKey').addEventListener('input', debounce(e => setSetting(providerKey(), e.target.value.trim())));
 
 function onSettingChanged(k) {
   if (k === 'units') { renderRide(); renderProfile(); if (listMode) renderCards(); updateNav(); }
   if (k === 'mapStyle') applyMapStyle();
   if (k === 'aiProvider') { renderKeyField(); routesGenerated = false; }
-  if (k === 'keyClaude' || k === 'keyOpenai' || k === 'routeLen') routesGenerated = false;
+  if (k.startsWith('key') || k === 'routeLen') routesGenerated = false;
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
@@ -917,7 +983,7 @@ $('checkUpdate').addEventListener('click', async () => {
 let user = null, pushTimer = null;
 const setSync = t => { $('syncState').textContent = t; };
 function cloudBlob() {
-  const { keyClaude, keyOpenai, ...pub } = S;   // API keys never leave the device
+  const pub = Object.fromEntries(Object.entries(S).filter(([k]) => !k.startsWith('key')));   // API keys never leave the device
   return { routes: D.routes, rides: D.rides, settings: pub, updatedAt: D.updatedAt };
 }
 function schedulePush() { if (!user) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 1500); }
