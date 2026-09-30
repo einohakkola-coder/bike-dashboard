@@ -1,5 +1,6 @@
 :root {
-  --tab-space: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px);   /* room above the docked tab bar */
+  --tab-bottom: max(env(safe-area-inset-bottom), 14px);   /* the pill floats just above the home indicator */
+  --tab-space: calc(var(--tab-h) + var(--tab-bottom) + 12px);   /* room above the tab pill */
   --bg: #000;
   --surface: #121214;
   --surface-2: #1c1c1f;
@@ -13,7 +14,7 @@
   --blue: #0a84ff;
   --green: #30d158;
   --yellow: #ffd60a;
-  --tab-h: 62px;
+  --tab-h: 58px;
   --ease: cubic-bezier(.32,.72,0,1);
   --spring: cubic-bezier(.34,1.4,.64,1);
 }
@@ -25,8 +26,9 @@ body {
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; touch-action: manipulation; }
-button:not(:disabled):active { transform: scale(.96); }
-button { transition: transform .15s var(--ease), background-color .2s, color .2s, opacity .2s; }
+button:not(:disabled):active { transform: scale(.96); filter: brightness(.78); }
+a:active, .card:active { filter: brightness(.85); }
+button, a { transition: transform .15s var(--ease), filter .12s, background-color .2s, color .2s, opacity .2s; }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 svg.fill, .fill { fill: currentColor; stroke: none; }
 .leaflet-container svg { width: auto; height: auto; }   /* keep the icon sizing above off the map overlays */
@@ -66,7 +68,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .leaflet-control-attribution { background: rgba(255,255,255,.55) !important; color: #666 !important; font-size: 8px !important; line-height: 1.5 !important;
   border-radius: 8px 0 0 0; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px !important; }
 .leaflet-control-attribution a { color: #333 !important; }
-#homeMap .leaflet-bottom { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 2px); }
+#homeMap .leaflet-bottom.leaflet-right { bottom: auto; top: calc(env(safe-area-inset-top) + 66px); }
+#homeMap .leaflet-control-attribution { border-radius: 8px 0 0 8px; }
 .me-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(10,132,255,.5); animation: me 2s infinite; }
 @keyframes me { 0% { box-shadow: 0 0 0 0 rgba(10,132,255,.45); } 70% { box-shadow: 0 0 0 16px rgba(10,132,255,0); } 100% { box-shadow: 0 0 0 0 rgba(10,132,255,0); } }
 
@@ -117,7 +120,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .empty-card p { font-size: 13px; color: var(--fg-2); margin-top: 4px; line-height: 1.45; }
 
 /* ============ record ============ */
-#view-record { padding: 0 0 calc(var(--tab-h) + env(safe-area-inset-bottom) + 10px); }
+#view-record { padding: 0 0 var(--tab-space); }
 .map-wrap { position: relative; flex: 1; border-radius: 0 0 34px 34px; overflow: hidden; min-height: 150px; }
 .map-top { position: absolute; z-index: 500; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 8px); }
 .search { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 6px 0 14px; border-radius: 23px; }
@@ -370,16 +373,17 @@ textarea:focus, .field:focus { border-color: rgba(10,132,255,.6); box-shadow: 0 
 
 /* ============ tab bar ============ */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 800;
-  height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding: 6px 10px calc(env(safe-area-inset-bottom) + 0px);
+  position: fixed; z-index: 800; left: 50%; bottom: var(--tab-bottom);
+  width: min(264px, calc(100% - 64px)); height: var(--tab-h); padding: 5px;
+  transform: translateX(-50%);
   display: grid; grid-template-columns: repeat(3, 1fr);
-  background: rgba(18,18,20,.86); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-  border-radius: 26px 26px 0 0; box-shadow: inset 0 1px 0 var(--line), 0 -8px 30px rgba(0,0,0,.35);
+  background: #000; border-radius: calc(var(--tab-h) / 2);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), 0 10px 30px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
 }
-.tabbar button { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--dim); border-radius: 24px; }
+.tabbar button { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; color: var(--dim); border-radius: 24px; }
 .tabbar button:active { transform: scale(.92); }
 .tabbar svg { width: 24px; height: 24px; }
-.tabbar span { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+.tabbar button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }   /* labels kept for screen readers */
 .tabbar button.active { color: var(--fg); }
 .tabbar button.active svg { animation: bounce .4s var(--spring); }
 @keyframes bounce { 40% { transform: scale(1.15); } }
@@ -388,8 +392,8 @@ body.riding .tabbar button[data-tab=record] { color: var(--red); }
 body.riding:not(.paused) .rec-dot { animation: blink 1.6s infinite; }
 @keyframes blink { 50% { opacity: .35; } }
 .indicator {
-  position: absolute; top: 6px; left: 10px; height: calc(var(--tab-h) - 12px); width: calc((100% - 20px) / 3); pointer-events: none;
-  border-radius: 22px; background: rgba(255,255,255,.09); transition: transform .45s var(--spring);
+  position: absolute; top: 5px; left: 5px; height: calc(var(--tab-h) - 10px); width: calc((100% - 10px) / 3); pointer-events: none;
+  border-radius: calc((var(--tab-h) - 10px) / 2); background: rgba(255,255,255,.14); transition: transform .45s var(--spring);
 }
 
 /* ============ sheets ============ */
