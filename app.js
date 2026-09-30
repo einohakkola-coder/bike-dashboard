@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '2.3';   // bump here and in version.json on every release
+const VERSION = '2.4';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -18,8 +18,8 @@ const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
   name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true,
   mapStyle: 'liberty', routeLen: 'normal',
-  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'call',
-  aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyDiscord: ''
+  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'shortcut',
+  aiProvider: 'claude', keyClaude: '', keyOpenai: ''
 };
 const S = (() => {
   const saved = store.get('settings', null);
@@ -798,7 +798,7 @@ function renderSettings() {
   $('setName').value = S.name;
   $('setNumbers').value = S.sosNumbers.join('\n');
   $('setMessage').value = S.sosMessage;
-  $('setDiscord').value = S.keyDiscord;
+  $('shortcutHelp').hidden = $('testShortcut').hidden = S.sosAction !== 'shortcut';
   renderKeyField();
   $('version').textContent = VERSION;
   $('accTitle').textContent = user ? user.email : 'Kirjaudu sisään';
@@ -826,7 +826,6 @@ const debounce = (fn, ms = 400) => { let t; return (...a) => { clearTimeout(t); 
 $('setName').addEventListener('input', debounce(e => setSetting('name', e.target.value.trim())));
 $('setNumbers').addEventListener('input', debounce(e => setSetting('sosNumbers', e.target.value.split(/[\n,;]+/).map(s => s.replace(/[^\d+]/g, '')).filter(Boolean))));
 $('setMessage').addEventListener('input', debounce(e => setSetting('sosMessage', e.target.value.trim() || DEFAULT_MSG)));
-$('setDiscord').addEventListener('input', debounce(e => { setSetting('keyDiscord', e.target.value.trim()); $('discordState').textContent = ''; }));
 $('setKey').addEventListener('input', debounce(e => setSetting(S.aiProvider === 'openai' ? 'keyOpenai' : 'keyClaude', e.target.value.trim())));
 
 function onSettingChanged(k) {
@@ -837,6 +836,7 @@ function onSettingChanged(k) {
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
+  if (k === 'sosAction') $('shortcutHelp').hidden = $('testShortcut').hidden = S.sosAction !== 'shortcut';
   if (k === 'sosHold') $('sos').style.setProperty('--hold', `${S.sosHold}s`);
 }
 
@@ -877,7 +877,7 @@ $('checkUpdate').addEventListener('click', async () => {
 let user = null, pushTimer = null;
 const setSync = t => { $('syncState').textContent = t; };
 function cloudBlob() {
-  const { keyClaude, keyOpenai, keyDiscord, ...pub } = S;   // API keys and the webhook never leave the device
+  const { keyClaude, keyOpenai, ...pub } = S;   // API keys never leave the device
   return { routes: D.routes, rides: D.rides, settings: pub, updatedAt: D.updatedAt };
 }
 function schedulePush() { if (!user) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 1500); }
@@ -1010,69 +1010,35 @@ function showCount(n) {
   c.classList.remove('tick'); void c.offsetWidth; c.classList.add('show', 'tick');
   navigator.vibrate?.(40);   // always, even if haptics are off: this is an emergency action
 }
-/* ---------- Discord webhook ---------- */
-const WEBHOOK_RE = /^https:\/\/(ptb\.|canary\.)?(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+/;
-const mapsLink = f => `https://maps.google.com/?q=${f.lat.toFixed(6)},${f.lon.toFixed(6)}`;
-async function sendDiscord(payload) {
-  if (!WEBHOOK_RE.test(S.keyDiscord)) throw new Error('Webhook-osoite ei kelpaa');
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 6000);
-  try {
-    const r = await fetch(S.keyDiscord + (S.keyDiscord.includes('?') ? '&' : '?') + 'wait=true', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload), signal: ctrl.signal, keepalive: true
-    });
-    if (!r.ok) throw new Error(`Discord ${r.status}`);
-  } finally { clearTimeout(timer); }
+/* ---------- automatic SMS through an iOS Shortcut named "Ride SOS" ---------- */
+const SHORTCUT = 'Ride SOS';
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function sosText() {
+  let body = S.sosMessage || DEFAULT_MSG;
+  if (S.sosLocation && lastFix) body += `
+Sijainti: https://maps.google.com/?q=${lastFix.lat.toFixed(6)},${lastFix.lon.toFixed(6)}`;
+  return body;
 }
-function sosPayload() {
-  const who = S.name || 'Pyöräilijä';
-  const fields = [{ name: 'Aika', value: new Date().toLocaleString('fi-FI'), inline: true }];
-  if (lastFix) {
-    fields.push({ name: 'Tarkkuus', value: `±${Math.round(lastFix.acc)} m`, inline: true });
-    fields.push({ name: 'Nopeus', value: `${Math.round(toSpeed(speedKmh))} ${sUnit()}`, inline: true });
-  }
-  return {
-    username: 'Ride SOS',
-    content: `@everyone 🚨 **SOS: ${who} tarvitsee apua!**
-${S.sosMessage || DEFAULT_MSG}`,
-    allowed_mentions: { parse: ['everyone'] },
-    embeds: [{
-      title: lastFix ? '📍 Avaa sijainti kartalla' : 'Sijainti ei saatavilla',
-      url: lastFix ? mapsLink(lastFix) : undefined,
-      description: lastFix ? `${lastFix.lat.toFixed(5)}, ${lastFix.lon.toFixed(5)}` : 'GPS-sijaintia ei ollut hälytyshetkellä.',
-      color: 0xff3b30, fields
-    }]
-  };
+function runShortcut(text) {
+  location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT)}&input=text&text=${encodeURIComponent(text)}`;
 }
-$('testDiscord').addEventListener('click', async () => {
-  const st = $('discordState');
-  st.textContent = 'Lähetetään…';
-  try {
-    await sendDiscord({ username: 'Ride SOS', content: `✅ Testi: ${S.name || 'Pyöräilijän'} SOS-hälytykset tulevat tälle kanavalle.`, allowed_mentions: { parse: [] } });
-    st.textContent = 'Toimii ✓';
-  } catch (e) { st.textContent = ''; toast(e.message.startsWith('Webhook') ? e.message : `Lähetys epäonnistui (${e.message})`); }
+$('testShortcut').addEventListener('click', () => {
+  if (!isIOS()) return toast('Auto-SMS toimii vain iPhonessa');
+  runShortcut(`Testi: ${S.name || 'Ride'} SOS-hälytys toimii. Tähän ei tarvitse vastata.`);
 });
 
-async function fireSOS() {
+function fireSOS() {
   endHold();
   navigator.vibrate?.([200, 100, 200]);
   const nums = S.sosNumbers;
-  let sentDiscord = false;
-  if (S.keyDiscord) {
-    toast('Lähetetään hälytystä…', 6000);
-    try { await sendDiscord(sosPayload()); sentDiscord = true; toast('🚨 Hälytys lähetetty Discordiin', 5000); }
-    catch (e) { toast(`Discord-hälytys epäonnistui (${e.message})`, 6000); }
-  }
-  if (S.sosAction === 'none') {
-    if (!sentDiscord && !S.keyDiscord) toast('SOS ei lähettänyt mitään: valitse asetuksista soitto, viesti tai Discord', 5000);
+  if (S.sosAction === 'shortcut' && isIOS()) {
+    runShortcut(sosText());
     return;
   }
   if (!nums.length) {
-    if (sentDiscord) return;
     showTab('profile'); renderSettings(); openPage('settings');
     setTimeout(() => $('setNumbers').focus(), 450);
-    toast('Lisää SOS-numerot tai Discord-webhook');
+    toast('Lisää ensin SOS-numerot');
     return;
   }
   if (S.sosAction === 'call') {
@@ -1080,11 +1046,8 @@ async function fireSOS() {
     location.href = `tel:${nums[0]}`;
     return;
   }
-  let body = S.sosMessage || DEFAULT_MSG;
-  if (S.sosLocation && lastFix) body += `\nSijainti: https://maps.google.com/?q=${lastFix.lat.toFixed(6)},${lastFix.lon.toFixed(6)}`;
-  const enc = encodeURIComponent(body);
-  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  location.href = iOS ? `sms:/open?addresses=${nums.join(',')}&body=${enc}` : `sms:${nums.join(',')}?body=${enc}`;
+  const enc = encodeURIComponent(sosText());
+  location.href = isIOS() ? `sms:/open?addresses=${nums.join(',')}&body=${enc}` : `sms:${nums.join(',')}?body=${enc}`;
 }
 const sos = $('sos');
 sos.addEventListener('pointerdown', startHold);
@@ -1095,6 +1058,8 @@ sos.addEventListener('contextmenu', e => e.preventDefault());
    Start
    ===================================================================== */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+delete S.keyDiscord;   // removed in 2.4
+if (!store.get('migrated24', false)) { S.sosAction = 'shortcut'; store.set('migrated24', true); }   // 2.4 made auto-SMS the default
 store.set('settings', S);
 applyMapStyle();
 onSettingChanged('sosHold');
