@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ride">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="app.css">
+<title>Ride</title>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section class="view" id="view-home">
+  <div class="map" id="homeMap"></div>
+  <div class="home-top">
+    <div class="pill" id="homeStatus">Reitit lähelläsi</div>
+    <button class="round" id="regen" aria-label="Luo uudet reitit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+    </button>
+  </div>
+  <div class="cards" id="cards"></div>
+</section>
+
+<!-- ============ RECORD ============ -->
+<section class="view" id="view-record">
+  <div class="map-wrap">
+    <div class="map" id="rideMap"></div>
+
+    <div class="map-top">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input id="search" type="text" placeholder="Minne ajetaan?" autocomplete="off" enterkeyhint="search">
+        <button id="clearRoute" class="x" aria-label="Poista reitti" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
+        </button>
+      </div>
+      <div class="results" id="results"></div>
+      <div class="nav" id="nav" hidden>
+        <svg class="arrow" id="navArrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M6 11l6-6 6 6"/></svg>
+        <div class="nav-text"><div class="nav-dist" id="navDist"></div><div class="nav-street" id="navStreet"></div></div>
+        <div class="nav-left" id="navLeft"></div>
+      </div>
+    </div>
+
+    <div class="map-bottom">
+      <div class="ext" id="ext" hidden>
+        <a id="gmaps" target="_blank" rel="noopener">Google Maps</a>
+        <a id="amaps" target="_blank" rel="noopener">Apple Maps</a>
+      </div>
+      <button class="round" id="recenter" aria-label="Keskitä">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5L3.8 10.2c-.6.3-.6 1.2.1 1.4l6.5 2 2 6.5c.2.7 1.1.7 1.4.1z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="stats"><span><b id="time">0:00</b></span><span><b id="dist">0.00</b> km</span><span class="gps" id="gps"></span></div>
+
+  <div class="controls">
+    <button class="side" id="pause" aria-label="Tauko">
+      <svg class="ico" id="icoPause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      <svg class="ico" id="icoPlay" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.4-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>
+    </button>
+    <button class="main" id="main" aria-label="Nopeus">
+      <div class="speed"><div class="num" id="speed">0</div><div class="unit">KM/H</div></div>
+      <div class="stop"><i></i><span>STOP</span></div>
+    </button>
+    <button class="side sos" id="sos" aria-label="SOS">
+      <svg class="ring" viewBox="0 0 84 84"><circle cx="42" cy="42" r="39"/></svg>
+      <span id="sosLabel">SOS</span>
+    </button>
+    <div class="hint" id="hint">Pidä pohjassa 5 s</div>
+  </div>
+</section>
+
+<!-- ============ PROFILE ============ -->
+<section class="view scroll" id="view-profile">
+  <h1>Profiili</h1>
+  <div class="totals">
+    <div><div class="v" id="tRides">0</div><div class="k">Lenkit</div></div>
+    <div><div class="v" id="tKm">0</div><div class="k">km</div></div>
+    <div><div class="v" id="tTime">0 h</div><div class="k">Aika</div></div>
+  </div>
+  <div class="history" id="history"></div>
+
+  <h2>Asetukset</h2>
+  <label for="numbers">SOS-numerot</label>
+  <textarea id="numbers" rows="3" placeholder="+358401234567&#10;+358501234567" inputmode="tel"></textarea>
+  <div class="note">Yksi numero per rivi.</div>
+  <label for="message">SOS-viesti</label>
+  <textarea id="message" rows="3"></textarea>
+  <div class="row"><span>Liitä sijainti viestiin</span><button class="switch on" id="loc" aria-label="Liitä sijainti"></button></div>
+  <label for="apikey">AI-reitit · Claude API -avain</label>
+  <input id="apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+  <div class="note">Valinnainen. Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avain tallennetaan vain tälle laitteelle.</div>
+  <button class="primary" id="saveSettings">Tallenna</button>
+  <div class="saved" id="saved">Tallennettu</div>
+</section>
+
+<!-- ============ TAB BAR ============ -->
+<nav class="tabbar">
+  <span class="indicator" id="indicator"></span>
+  <button data-tab="home" aria-label="Koti">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></svg>
+  </button>
+  <button data-tab="record" aria-label="Tallenna">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><circle class="rec-dot" cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+  </button>
+  <button data-tab="profile" aria-label="Profiili">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c1.2-3.8 4-5.5 7.5-5.5s6.3 1.7 7.5 5.5"/></svg>
+  </button>
+</nav>
+
+<!-- ride summary -->
+<div class="sheet" id="summary">
+  <h2>Lenkki</h2>
+  <div class="grid">
+    <div><div class="v" id="sTime">0:00</div><div class="k">Aika</div></div>
+    <div><div class="v" id="sDist">0.00</div><div class="k">km</div></div>
+    <div><div class="v" id="sAvg">0</div><div class="k">Keskinopeus</div></div>
+    <div><div class="v" id="sMax">0</div><div class="k">Huippu</div></div>
+  </div>
+  <button class="primary" id="newRide">Valmis</button>
+</div>
+
+<div class="flash"></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
