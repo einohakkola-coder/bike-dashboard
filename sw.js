@@ -1,5 +1,5 @@
-const CACHE = 'ride-v21';
-const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'sounds/sos-chime.mp3', 'sounds/sos-siren.mp3', 'sounds/sos-siren-last.mp3', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'ride-v22';
+const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'sounds/sos-chime.mp3', 'sounds/sos-siren.mp3', 'sounds/sos-siren-last.mp3', 'app-icon-180.png', 'app-icon-192.png', 'app-icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

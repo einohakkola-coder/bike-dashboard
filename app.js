@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '3.6';   // bump here and in version.json on every release
+const VERSION = '3.7';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -200,19 +200,22 @@ let recent = [];   // fixes from the last few seconds, for computing speed when 
 
 function onPos(p) {
   const c = p.coords;
-  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: Date.now() };
+  // the GPS's own timestamp, not the moment the update reached us (iOS sometimes delivers fixes late or in bursts)
+  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: p.timestamp || Date.now() };
 
-  // Prefer the speed the phone reports (Doppler-based). Some devices give null or -1;
-  // then derive it from the distance covered over the last ~5 s.
+  // Prefer the speed the phone reports (Doppler-based, instant). Some devices give null or -1;
+  // then derive it from the distance covered over roughly the last second.
   let v = (typeof c.speed === 'number' && c.speed >= 0 && !isNaN(c.speed)) ? c.speed : null;
-  if (c.accuracy <= 50) { recent.push(fix); recent = recent.filter(f => fix.t - f.t <= 5000); }
+  const fromDevice = v !== null;
+  if (c.accuracy <= 40) { recent.push(fix); recent = recent.filter(f => fix.t - f.t <= 3000); }
   if (v === null && recent.length >= 2) {
-    const a = recent[0], dt = (fix.t - a.t) / 1000;
-    if (dt >= 1.5) v = haversine(a, fix) / dt;
+    const a = [...recent].reverse().find(f => fix.t - f.t >= 900) || recent[0];
+    const dt = (fix.t - a.t) / 1000;
+    if (dt >= 0.8) v = haversine(a, fix) / dt;
   }
   if (v !== null) {
     const k = v * 3.6;
-    speedKmh = k < 1.5 ? 0 : (speedKmh ? speedKmh * 0.35 + k * 0.65 : k);
+    speedKmh = k < 1.5 ? 0 : fromDevice ? k : (speedKmh ? speedKmh * 0.3 + k * 0.7 : k);
     // peak speed only counts when 3 good fixes in a row agree, so a single GPS jump can't set it
     if (c.accuracy <= 20) { peakWin.push(k); if (peakWin.length > 3) peakWin.shift(); } else peakWin = [];
   }
