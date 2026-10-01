@@ -1,5 +1,5 @@
-const CACHE = 'ride-v25';
-const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'sounds/sos-chime.mp3', 'sounds/sos-siren.mp3', 'sounds/sos-siren-last.mp3', 'app-icon-180.png', 'app-icon-192.png', 'app-icon-512.png'];
+const CACHE = 'ride-v26';
+const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'sounds/sos-chime.mp3', 'sounds/sos-siren.mp3', 'sounds/sos-siren-last.mp3', 'sounds/ui/tap.mp3', 'sounds/ui/tab-forward.mp3', 'sounds/ui/tab-back.mp3', 'sounds/ui/open.mp3', 'sounds/ui/close.mp3', 'sounds/ui/on.mp3', 'sounds/ui/off.mp3', 'sounds/ui/pause.mp3', 'sounds/ui/resume.mp3', 'sounds/ui/cancel.mp3', 'sounds/ui/error.mp3', 'sounds/ui/split.mp3', 'sounds/ui/offroute.mp3', 'sounds/ui/saved.mp3', 'sounds/ui/bookmark.mp3', 'sounds/ui/arrive.mp3', 'app-icon-180.png', 'app-icon-192.png', 'app-icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

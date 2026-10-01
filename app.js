@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '4.1';   // bump here and in version.json on every release
+const VERSION = '4.2';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -16,7 +16,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
    ===================================================================== */
 const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
-  name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true, voice: true,
+  name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true, sounds: true,
   mapStyle: 'liberty', routeLen: 'normal',
   sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms', sosCallNumber: '',
   aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyGemini: '', keyGroq: ''
@@ -164,7 +164,11 @@ function showTab(name) {
   if (name === 'record') rideMap.invalidateSize();
   if (name === 'profile') renderProfile();
 }
-document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => { buzz(8); showTab(b.dataset.tab); }));
+document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => {
+  buzz(8);
+  if (b.dataset.tab !== tab) sfx(TABS.indexOf(b.dataset.tab) > TABS.indexOf(tab) ? 'tab-forward' : 'tab-back', .5);
+  showTab(b.dataset.tab);
+}));
 
 const pageStack = [];
 function openPage(id) {
@@ -172,6 +176,7 @@ function openPage(id) {
   under.classList.add('covered');
   pageStack.push(id);
   $(id).classList.add('open');
+  sfx('open', .45);
 }
 function closePage() {
   const id = pageStack.pop();
@@ -179,7 +184,7 @@ function closePage() {
   $(id).classList.remove('open');
   (pageStack.length ? $(pageStack.at(-1)) : $('view-profile')).classList.remove('covered');
 }
-document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePage));
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { sfx('close', .45); closePage(); }));
 // the large page title scrolls away and a small one appears in the bar, like iOS
 document.querySelectorAll('.page').forEach(p => p.addEventListener('scroll', () => p.classList.toggle('scrolled', p.scrollTop > 44), { passive: true }));
 
@@ -287,7 +292,7 @@ function startRide() {
   document.body.classList.add('riding');
   setPaused(false);
   keepAwake();
-  speak('Lenkki aloitettu');   // first speech has to happen inside a tap on iPhone
+  sfx('resume');
   follow = true;
   if (lastFix) rideMap.setView([lastFix.lat, lastFix.lon], Math.max(rideMap.getZoom(), 16), { animate: true });
   saveRideState();
@@ -321,8 +326,7 @@ function checkSplit() {
     lastSplitAt = moving; splits.push(splitMs); nextSplit += splitLen();
     toast(`${n} ${dUnit()} · ${fmtTime(splitMs)}`);
     buzz([60, 60, 60]);
-    const unit = isMi() ? (n === 1 ? 'maili' : 'mailia') : (n === 1 ? 'kilometri' : 'kilometriä');
-    speak(`${n} ${unit}. Aika ${spokenTime(elapsed)}. Viimeisin ${isMi() ? 'maili' : 'kilometri'} ${spokenTime(splitMs)}. Keskinopeus ${Math.round(toSpeed(avgKmh()))}.`);
+    sfx('split', .7);
   }
 }
 function renderRide() {
@@ -346,9 +350,9 @@ setInterval(() => {
   if (rideActive && S.autoPause) {
     if (!paused && speedKmh === 0) {
       stillSince ||= now;
-      if (now - stillSince > 8000) { setPaused(true); autoPaused = true; toast('Automaattinen tauko'); buzz(30); speak('Tauko'); }
+      if (now - stillSince > 8000) { setPaused(true); autoPaused = true; toast('Automaattinen tauko'); buzz(30); sfx('pause'); }
     } else if (speedKmh > 0) stillSince = 0;
-    if (paused && autoPaused && speedKmh > 4) { setPaused(false); toast('Jatketaan'); buzz(30); speak('Jatketaan'); }
+    if (paused && autoPaused && speedKmh > 4) { setPaused(false); toast('Jatketaan'); buzz(30); sfx('resume'); }
   }
   renderRide();
   if (rideActive && ++saveCounter % 20 === 0) saveRideState();   // every 5 s
@@ -364,7 +368,7 @@ function setPaused(v) {
 $('pause').addEventListener('click', () => {
   if (!rideActive) return;
   setPaused(!paused); buzz(20);
-  speak(paused ? 'Tauko' : 'Jatketaan');
+  sfx(paused ? 'pause' : 'resume');
 });
 
 /* ---------- keep an unfinished ride if the app is closed or reloaded ---------- */
@@ -403,6 +407,7 @@ $('main').addEventListener('click', () => {
     avg: +avgKmh().toFixed(1), max: +maxSpeed.toFixed(1), climb: Math.round(climb), splits: [...splits],
     line: simplify(trackPts, 10)
   };
+  sfx('pause');
   showRideSheet(pendingRide, 'finish');
 });
 function showRideSheet(r, mode) {
@@ -473,11 +478,11 @@ $('saveRideBtn').addEventListener('click', () => {
   D.rides.unshift(pendingRide);
   D.rides = D.rides.slice(0, 300);
   persist();
-  buzz(30); toast('Lenkki tallennettu');
+  buzz(30); sfx('saved', .75); toast('Lenkki tallennettu');
   endRide();
 });
-$('discardRide').addEventListener('click', e => confirmTap(e.currentTarget, 'Hylkää', () => { endRide(); toast('Lenkki hylätty'); }));
-$('resumeRide').addEventListener('click', () => { closeSheet('summary'); setPaused(false); buzz(20); speak('Jatketaan'); });
+$('discardRide').addEventListener('click', e => confirmTap(e.currentTarget, 'Hylkää', () => { endRide(); sfx('cancel'); toast('Lenkki hylätty'); }));
+$('resumeRide').addEventListener('click', () => { closeSheet('summary'); setPaused(false); buzz(20); sfx('resume'); });
 $('backdrop').addEventListener('click', () => {
   if ($('summary').classList.contains('open') && !$('nameSheet').classList.contains('open')) closeSheet('summary');
 });
@@ -492,31 +497,12 @@ $('saveRide').addEventListener('click', e => saveRideAsRoute(pendingRide, e.curr
 $('detailSaveRoute').addEventListener('click', e => saveRideAsRoute(detailRide, e.currentTarget));
 $('deleteRide').addEventListener('click', e => confirmTap(e.currentTarget, 'Poista', () => {
   D.rides = D.rides.filter(r => r.id !== detailRide?.id);
-  persist(); closeSheet('summary'); renderProfile(); toast('Lenkki poistettu');
+  persist(); closeSheet('summary'); renderProfile(); sfx('cancel'); toast('Lenkki poistettu');
 }));
 $('closeDetail').addEventListener('click', () => closeSheet('summary'));
 function openRideDetail(id) {
   detailRide = D.rides.find(r => r.id === id);
   if (detailRide) showRideSheet(detailRide, 'detail');
-}
-
-/* ---------- spoken announcements (Finnish) ---------- */
-let fiVoice = null;
-function pickVoice() { try { fiVoice = speechSynthesis.getVoices().find(v => /^fi/i.test(v.lang)) || null; } catch {} }
-if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-function speak(text) {
-  if (!S.voice || !text || !('speechSynthesis' in window)) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'fi-FI'; u.rate = 1.03;
-    if (fiVoice) u.voice = fiVoice;
-    speechSynthesis.speak(u);
-  } catch {}
-}
-function spokenTime(ms) {
-  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
-  const part = (n, one, many) => n ? `${n} ${n === 1 ? one : many}` : '';
-  return [part(h, 'tunti', 'tuntia'), part(m, 'minuutti', 'minuuttia'), h ? '' : part(ss, 'sekunti', 'sekuntia')].filter(Boolean).join(' ') || '0 sekuntia';
 }
 
 /* =====================================================================
@@ -617,8 +603,6 @@ function nearestOnRoute(p) {
   if (best.d > 60) { const all = scan(0, f.length); if (all.d < best.d - 20) best = all; }
   return best;
 }
-const spokenStep = s => { const t = describe(s)[0].replace(' · ', ', '); return t[0].toLowerCase() + t.slice(1); };
-const spokenDist = d => isMi() ? `${Math.max(100, Math.round(d * 3.28084 / 100) * 100)} jalan` : `${Math.max(50, Math.round(d / 50) * 50)} metrin`;
 
 function onNavFix(fix) {
   if (!active || !nav) return;
@@ -630,8 +614,8 @@ function onNavFix(fix) {
   if (fix.acc <= 30) nav.offCount = near.d > 45 ? nav.offCount + 1 : 0;
   const wasOff = nav.off;
   nav.off = nav.offCount >= 3;
-  if (rideActive && nav.off && !wasOff) { speak(active.kind === 'dest' ? 'Poistuit reitiltä. Lasketaan uusi reitti.' : 'Poistuit reitiltä'); buzz([80, 60, 80]); }
-  if (rideActive && !nav.off && wasOff) speak('Takaisin reitillä');
+  if (rideActive && nav.off && !wasOff) { sfx('offroute', .7); buzz([80, 60, 80]); }
+  if (rideActive && !nav.off && wasOff) sfx('on');
   if (nav.off && active.kind === 'dest' && Date.now() - nav.rerouteAt > 20000) reroute();
 
   const steps = active.steps || [];
@@ -641,18 +625,19 @@ function onNavFix(fix) {
     const s = steps[stepIdx];
     if (s && rideActive && !nav.off) {
       const d = haversine(fix, s);
-      if (d < 230 && d > 90 && !nav.said.has(`f${stepIdx}`)) { nav.said.add(`f${stepIdx}`); speak(`${spokenDist(d)} päästä ${spokenStep(s)}`); }
+      if (d < 230 && d > 90 && !nav.said.has(`f${stepIdx}`)) { nav.said.add(`f${stepIdx}`); sfx('open', .7); buzz(40); }
       if (d < 45 && !nav.said.has(`n${stepIdx}`)) {
         nav.said.add(`n${stepIdx}`);
         if (s.type === 'arrive') nav.said.add('arr');
-        speak(s.type === 'arrive' ? 'Olet perillä' : `Nyt ${spokenStep(s)}`);
+        if (s.type !== 'arrive') { sfx('open', .7); buzz([40, 60, 40]); }
       }
     }
   }
   if (active.kind === 'dest' && !nav.arrived && nav.remaining < 30) {
     nav.arrived = true;
     toast('Olet perillä');
-    if (rideActive) { buzz([100, 60, 100]); if (!nav.said.has('arr')) speak('Olet perillä'); }
+    if (rideActive) buzz([100, 60, 100]);
+    sfx('arrive', .8);
   }
   updateNav();
 }
@@ -665,7 +650,6 @@ async function reroute() {
     const r = await route([lastFix, dest]);
     setActiveRoute({ ...r, name: active.name, kind: 'dest', desc: active.desc, key: active.key }, true);
     toast('Reitti laskettu uudelleen');
-    if (rideActive) speak('Uusi reitti laskettu');
   } catch { if (nav) nav.rerouting = false; updateNav(); }
 }
 function updateNav() {
@@ -726,7 +710,7 @@ async function pickDestination(dest, name) {
   try {
     const r = await route([lastFix, dest]);
     setActiveRoute({ ...r, name, kind: 'dest', desc: 'Reitti kohteeseen', key: `dest:${dest.lat.toFixed(4)},${dest.lon.toFixed(4)}` });
-  } catch { toast('Reittiä ei löytynyt'); }
+  } catch { sfx('error'); toast('Reittiä ei löytynyt'); }
 }
 
 /* =====================================================================
@@ -741,6 +725,7 @@ function saveRoute(r) {
   };
   D.routes.unshift(saved);
   persist();
+  sfx('bookmark', .7);
   toast('Tallennettu omiin reitteihin');
   if (listMode === 'saved') renderCards();
   return saved;
@@ -751,7 +736,7 @@ function deleteRoute(r) {
 }
 async function toggleSave(r) {
   if (!r) return;
-  if (isSaved(r)) { deleteRoute(r); toast('Poistettu omista reiteistä'); return; }
+  if (isSaved(r)) { deleteRoute(r); sfx('cancel'); toast('Poistettu omista reiteistä'); return; }
   const name = await askName(r.name || 'Oma reitti');
   if (name) saveRoute({ ...r, name });
 }
@@ -906,6 +891,7 @@ async function generateRoutes() {
     if (!results.length) aiError = 'Tekoäly ei löytänyt sopivia reittejä. Kokeile uudelleen.';
   } catch (e) {
     console.warn(e);
+    sfx('error');
     aiError = e.message || 'Tuntematon virhe';
   }
   suggested = results;
@@ -957,7 +943,7 @@ function renderCards() {
           setTimeout(() => corner.classList.remove('confirm'), 2500);
           return;
         }
-        deleteRoute(r); toast('Reitti poistettu'); renderCards(); selectRoute(Math.min(i, D.routes.length - 1));
+        deleteRoute(r); sfx('cancel'); toast('Reitti poistettu'); renderCards(); selectRoute(Math.min(i, D.routes.length - 1));
       } else {
         await toggleSave(r);
         corner.classList.toggle('saved', isSaved(r));
@@ -1103,6 +1089,7 @@ document.querySelectorAll('.switch[data-setting]').forEach(sw => sw.addEventList
   const k = sw.dataset.setting;
   sw.classList.toggle('on');
   buzz(8);
+  sfx(sw.classList.contains('on') ? 'on' : 'off', .45);
   setSetting(k, sw.classList.contains('on'));
 }));
 const debounce = (fn, ms = 400) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -1177,8 +1164,7 @@ function onSettingChanged(k) {
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
-  if (k === 'voice' && !S.voice) { try { speechSynthesis.cancel(); } catch {} }
-  if (k === 'voice' && S.voice) speak('Ääniopastus päällä');
+  if (k === 'sounds' && S.sounds) sfx('on');
 }
 
 $('clearHistory').addEventListener('click', e => {
@@ -1198,7 +1184,7 @@ $('checkUpdate').addEventListener('click', async () => {
   val.textContent = 'Tarkistetaan…';
   try {
     const { version } = await (await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })).json();
-    if (version === VERSION) { toast('Uusin versio on jo käytössä'); val.textContent = VERSION; return; }
+    if (version === VERSION) { sfx('on'); toast('Uusin versio on jo käytössä'); val.textContent = VERSION; return; }
     val.textContent = `Päivitetään ${version}…`;
     const reg = await navigator.serviceWorker?.getRegistration();
     await reg?.update();
@@ -1330,7 +1316,7 @@ let audio = null;
 function unlockAudio() {
   // must happen inside the touch itself, or iOS keeps the sound muted
   try {
-    if (navigator.audioSession) navigator.audioSession.type = 'playback';   // play even with the iPhone on silent
+    setAudioMode('playback');   // the SOS countdown plays even with the iPhone on silent
     audio ||= new (window.AudioContext || window.webkitAudioContext)();
     if (audio.state === 'suspended') audio.resume();
   } catch {}
@@ -1346,6 +1332,32 @@ function tone(freq, start, dur, vol = .55) {
   o.connect(g).connect(audio.destination);
   o.start(start); o.stop(start + dur + .02);
 }
+/* ---------- interface sounds (Google Material Design sound resources, CC BY 4.0) ---------- */
+const SFX = ['tap', 'tab-forward', 'tab-back', 'open', 'close', 'on', 'off', 'pause', 'resume', 'cancel', 'error', 'split', 'offroute', 'saved', 'bookmark', 'arrive'];
+const sfxBufs = {};
+let lastSfx = 0;
+function sfx(name, vol = .55) {
+  lastSfx = Date.now();
+  if (!S.sounds || !audio || !sfxBufs[name]) return;
+  try {
+    if (audio.state === 'suspended') audio.resume();
+    const src = audio.createBufferSource(), g = audio.createGain();
+    src.buffer = sfxBufs[name]; g.gain.value = vol;
+    src.connect(g).connect(audio.destination);
+    src.start();
+  } catch {}
+}
+// UI sounds follow the silent switch and mix with music; only the SOS countdown overrides that
+function setAudioMode(mode) { try { if (navigator.audioSession) navigator.audioSession.type = mode; } catch {} }
+setAudioMode('ambient');
+document.addEventListener('pointerdown', () => { try { if (audio?.state === 'suspended') audio.resume(); } catch {} }, { passive: true });
+// a soft tap for every button that doesn't play a sound of its own
+document.addEventListener('click', e => {
+  const b = e.target.closest('button, a');
+  if (!b || b.disabled || Date.now() - lastSfx < 120) return;
+  sfx('tap', .35);
+});
+
 // recorded countdown sounds (cut from the full Pixel-style sample): chime for 5/4, siren for 3/2, siren with tail for 1
 const SOS_SOUNDS = { chime: 'sounds/sos-chime.mp3', siren: 'sounds/sos-siren.mp3', last: 'sounds/sos-siren-last.mp3' };
 const sosBuffers = {};
@@ -1353,16 +1365,21 @@ let sosSoundsLoaded = null;
 function loadSosSounds() {
   if (sosSoundsLoaded) return sosSoundsLoaded;
   try { audio ||= new (window.AudioContext || window.webkitAudioContext)(); } catch { return Promise.resolve(); }
-  sosSoundsLoaded = Promise.all(Object.entries(SOS_SOUNDS).map(async ([name, url]) => {
+  const decode = async (url, into, name) => {
     try {
       const data = await (await fetch(url)).arrayBuffer();
-      sosBuffers[name] = await new Promise((ok, fail) => audio.decodeAudioData(data, ok, fail));
-    } catch (e) { console.warn('SOS sound', name, e); }
-  }));
+      into[name] = await new Promise((ok, fail) => audio.decodeAudioData(data, ok, fail));
+    } catch (e) { console.warn('sound', name, e); }
+  };
+  sosSoundsLoaded = Promise.all([
+    ...Object.entries(SOS_SOUNDS).map(([name, url]) => decode(url, sosBuffers, name)),
+    ...SFX.map(name => decode(`sounds/ui/${name}.mp3`, sfxBufs, name))
+  ]);
   return sosSoundsLoaded;
 }
 // plays a recorded sample; falls back to the synthesised sound if it hasn't loaded
 function playSos(name, fallback) {
+  lastSfx = Date.now();
   const buf = sosBuffers[name];
   if (!audio || !buf) return fallback();
   const src = audio.createBufferSource(), g = audio.createGain();
@@ -1475,11 +1492,13 @@ function closeSOSScreen() {
   holdTimer = countTimer = ringTimer = null;
   const scr = $('sosScreen');
   scr.classList.remove('show');
+  setTimeout(() => setAudioMode('ambient'), 2500);
   setTimeout(() => { if (!holdTimer) scr.hidden = true; }, 300);
 }
 function cancelSOS() {
   closeSOSScreen();
   navigator.vibrate?.(30);
+  sfx('cancel');
   toast('SOS peruttu');
 }
 
