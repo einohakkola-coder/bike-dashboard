@@ -1,6 +1,6 @@
 {
-  "name": "Ride",
-  "short_name": "Ride",
+  "name": "Pyöräily",
+  "short_name": "Pyöräily",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

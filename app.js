@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '4.0';   // bump here and in version.json on every release
+const VERSION = '4.1';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -18,7 +18,7 @@ const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
   name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true, voice: true,
   mapStyle: 'liberty', routeLen: 'normal',
-  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms',
+  sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms', sosCallNumber: '',
   aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyGemini: '', keyGroq: ''
 };
 const S = (() => {
@@ -100,9 +100,24 @@ const samplePoints = (line, n = 5) => (line = flatLine(line), Array.from({ lengt
 const STYLES = { liberty: 'liberty', positron: 'positron', dark: 'dark' };
 const styleUrl = () => `https://tiles.openfreemap.org/styles/${STYLES[S.mapStyle] || 'liberty'}`;
 const ATTR = '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OSM</a>';
+// the map style shows English names first ("City Centre"); prefer Finnish, then the local name
+function finnishLabels(layer) {
+  const gl = layer.getMaplibreMap();
+  const apply = () => {
+    for (const l of gl.getStyle()?.layers || []) {
+      const tf = l.layout?.['text-field'];
+      if (tf && JSON.stringify(tf).includes('name')) {
+        try { gl.setLayoutProperty(l.id, 'text-field', ['coalesce', ['get', 'name:fi'], ['get', 'name']]); } catch {}
+      }
+    }
+  };
+  gl.on('style.load', apply);
+  if (gl.isStyleLoaded()) apply();
+}
 function makeMap(el) {
   const m = L.map(el, { zoomControl: false, attributionControl: true }).setView([60.17, 24.94], 13);
   m._gl = L.maplibreGL({ style: styleUrl(), attribution: ATTR }).addTo(m);
+  finnishLabels(m._gl);
   m.attributionControl.setPrefix(false);
   return m;
 }
@@ -422,6 +437,7 @@ function drawMini(line) {
   if (!sumMap) {
     sumMap = L.map('sumMap', { zoomControl: false, attributionControl: false, dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false });
     sumMap._gl = L.maplibreGL({ style: styleUrl() }).addTo(sumMap);
+    finnishLabels(sumMap._gl);
   }
   const fit = () => { sumMap.invalidateSize(); sumMap.fitBounds(sumLine.getBounds(), { padding: [18, 18], animate: false }); };
   if (sumLine) sumLine.remove();
@@ -870,7 +886,7 @@ async function generateRoutes() {
   generating = true; routesGenerated = true; aiError = '';
   const start = { lat: lastFix.lat, lon: lastFix.lon };
   $('regen').classList.add('spin');
-  $('homeStatus').textContent = 'AI suunnittelee reittejä…';
+  $('homeStatus').textContent = 'Tekoäly suunnittelee reittejä…';
   suggested = [];
   if (listMode === 'suggested') renderCards();
 
@@ -887,7 +903,7 @@ async function generateRoutes() {
         results.push({ ...r, name: idea.name, desc: idea.description, ai: true, kind: 'loop', key: `ai:${idea.name}:${Math.round(r.distance / 100)}` });
       } catch {}
     }
-    if (!results.length) aiError = 'AI ei löytänyt sopivia reittejä. Kokeile uudelleen.';
+    if (!results.length) aiError = 'Tekoäly ei löytänyt sopivia reittejä. Kokeile uudelleen.';
   } catch (e) {
     console.warn(e);
     aiError = e.message || 'Tuntematon virhe';
@@ -910,8 +926,8 @@ function renderCards() {
   if (!list.length) {
     let icon = 'i-route', title, text, action = null;
     if (listMode === 'saved') [title, text] = ['Ei vielä omia reittejä', 'Tallenna reitti kirjanmerkki-napista tai lenkin jälkeen, niin se löytyy täältä.'];
-    else if (!hasAiKey()) { icon = 'i-sparkle'; [title, text] = ['Reittiehdotukset AI:lta', 'Lisää API-avain, niin AI suunnittelee lenkkejä lähellesi. Geminin ja Groqin avaimet ovat ilmaisia.']; action = ['Lisää API-avain', openAiSettings]; }
-    else if (generating) { icon = 'i-sparkle'; [title, text] = ['AI suunnittelee reittejä…', 'Tämä kestää yleensä 10–30 sekuntia.']; }
+    else if (!hasAiKey()) { icon = 'i-sparkle'; [title, text] = ['Reittiehdotukset tekoälyltä', 'Lisää API-avain, niin tekoäly suunnittelee lenkkejä lähellesi. Geminin ja Groqin avaimet ovat ilmaisia.']; action = ['Lisää API-avain', openAiSettings]; }
+    else if (generating) { icon = 'i-sparkle'; [title, text] = ['Tekoäly suunnittelee reittejä…', 'Tämä kestää yleensä 10–30 sekuntia.']; }
     else if (aiError) { [title, text] = ['Reittiehdotukset epäonnistuivat', aiError]; action = ['Yritä uudelleen', () => { routesGenerated = false; generateRoutes(); }]; }
     else [title, text] = ['Odotetaan sijaintia…', 'Reittiehdotukset tulevat, kun GPS löytää sinut.'];
     box.innerHTML = `<div class="glass empty-card${generating ? ' busy' : ''}"><svg><use href="#${icon}"/></svg><b>${esc(title)}</b><p>${esc(text)}</p>${action ? `<button class="empty-btn">${action[0]}</button>` : ''}</div>`;
@@ -1098,18 +1114,37 @@ const validNum = v => /^\+?\d{6,15}$/.test(cleanNum(v));
 function saveNumbers() {
   const vals = [...$('numList').querySelectorAll('input')].map(i => cleanNum(i.value)).filter(validNum);
   setSetting('sosNumbers', vals);
+  if (S.sosCallNumber && !vals.includes(S.sosCallNumber)) setSetting('sosCallNumber', '');
+  markCallPick();
+}
+// the number that gets called: the one picked with the phone button, otherwise the first
+const callNumber = () => S.sosNumbers.includes(S.sosCallNumber) ? S.sosCallNumber : S.sosNumbers[0];
+function markCallPick() {
+  const target = callNumber();
+  $('numList').querySelectorAll('.num-row').forEach(row => {
+    row.querySelector('.callpick').classList.toggle('on', !!target && cleanNum(row.querySelector('input').value) === target);
+  });
 }
 const saveNumbersSoon = debounce(saveNumbers, 400);
 function numRow(value = '') {
   const row = document.createElement('div');
   row.className = 'num-row';
-  row.innerHTML = `<span class="num-badge"></span>
-    <input class="field" type="tel" inputmode="tel" autocomplete="tel" placeholder="+358 40 123 4567">
+  row.innerHTML = `<input class="field" type="tel" inputmode="tel" autocomplete="tel" placeholder="+358 40 123 4567">
+    <button class="icon-btn callpick" aria-label="Soita tälle numerolle"><svg><use href="#i-phone"/></svg></button>
     <button class="icon-btn del" aria-label="Poista numero"><svg><use href="#i-trash"/></svg></button>`;
   const input = row.querySelector('input');
   input.value = value;
   input.addEventListener('input', () => { input.classList.remove('bad'); saveNumbersSoon(); });
   input.addEventListener('blur', () => input.classList.toggle('bad', !!input.value.trim() && !validNum(input.value)));
+  row.querySelector('.callpick').addEventListener('click', () => {
+    const n = cleanNum(input.value);
+    if (!validNum(n)) { input.classList.add('bad'); return toast('Kirjoita ensin kelvollinen numero'); }
+    buzz(10);
+    saveNumbers();
+    setSetting('sosCallNumber', n);
+    markCallPick();
+    toast(`Puhelu soitetaan numeroon ${n}`);
+  });
   row.querySelector('.del').addEventListener('click', () => {
     buzz(10);
     row.classList.add('out');
@@ -1117,7 +1152,7 @@ function numRow(value = '') {
   });
   return row;
 }
-function renumber() { $('numList').querySelectorAll('.num-badge').forEach((b, i) => b.textContent = i + 1); }
+function renumber() { markCallPick(); }
 function renderNumbers() {
   const list = $('numList');
   list.innerHTML = '';
@@ -1404,10 +1439,12 @@ function openSOS() {
   const secs = S.sosHold || 5, nums = S.sosNumbers;
   const items = [];
   if (!nums.length) items.push(['warn', 'Ei SOS-numeroita: avaa asetukset']);
-  else if (S.sosAction === 'call') items.push(['call', `Soittaa numeroon ${nums[0]}`]);
   else {
-    items.push(['sms', `Lähettää tekstiviestin ${nums.length === 1 ? 'yhdelle kontaktille' : `${nums.length} kontaktille`}`]);
-    if (S.sosLocation) items.push(['loc', lastFix ? 'Jakaa sijaintisi kontakteille' : 'Jakaa sijaintisi (odotetaan GPS:ää)']);
+    if (S.sosAction !== 'call') {
+      items.push(['sms', `Lähettää tekstiviestin ${nums.length === 1 ? 'yhdelle kontaktille' : `${nums.length} kontaktille`}`]);
+      if (S.sosLocation) items.push(['loc', lastFix ? 'Jakaa sijaintisi kontakteille' : 'Jakaa sijaintisi (odotetaan GPS:ää)']);
+    }
+    if (S.sosAction !== 'sms') items.push(['call', `${S.sosAction === 'both' ? 'Soittaa sen jälkeen' : 'Soittaa'} numeroon ${callNumber()}`]);
   }
   $('sosList').innerHTML = items.map(([k, t]) => `<li class="${k === 'warn' ? 'warn' : ''}"><svg><use href="#${SOS_ICON[k]}"/></svg>${esc(t)}</li>`).join('');
 
@@ -1498,12 +1535,37 @@ function fireSOS() {
   }
   if (S.sosAction === 'call') {
     // the phone asks for one tap to confirm the call; web apps can't dial silently
-    location.href = `tel:${nums[0]}`;
+    location.href = `tel:${callNumber()}`;
     return;
   }
   const enc = encodeURIComponent(sosText());
-  location.href = isIOS() ? `sms:/open?addresses=${nums.join(',')}&body=${enc}` : `sms:${nums.join(',')}?body=${enc}`;
+  const smsUrl = isIOS() ? `sms:/open?addresses=${nums.join(',')}&body=${enc}` : `sms:${nums.join(',')}?body=${enc}`;
+  if (S.sosAction === 'both') showCallStep(callNumber());
+  location.href = smsUrl;
 }
+
+/* ---------- "message + call": after the message app, ring the chosen person ---------- */
+let callPending = null, leftForMessages = false;
+function showCallStep(number) {
+  callPending = number; leftForMessages = false;
+  $('callNum').textContent = number;
+  $('callScreen').hidden = false;
+}
+function hideCallStep() { callPending = null; $('callScreen').hidden = true; }
+function placeCall() {
+  if (!callPending) return;
+  const n = callPending;
+  hideCallStep();
+  location.href = `tel:${n}`;
+}
+document.addEventListener('visibilitychange', () => {
+  if (!callPending) return;
+  if (document.visibilityState === 'hidden') leftForMessages = true;
+  // back from Messages: start the call straight away (the phone still asks for one tap to confirm)
+  else if (leftForMessages) setTimeout(placeCall, 500);
+});
+$('callNow').addEventListener('click', () => { strongBuzz(40); placeCall(); });
+$('callCancel').addEventListener('click', () => { hideCallStep(); toast('Puhelu peruttu'); });
 const sos = $('sos');
 sos.addEventListener('click', () => openSOS());
 sos.addEventListener('contextmenu', e => e.preventDefault());
@@ -1532,10 +1594,10 @@ function startOnboarding() {
   if (!obSteps.length) { store.set('onboarded', true); return; }
 
   const how = isIOS()
-    ? [`Napauta <span class="kbd"><svg><use href="#i-share"/></svg></span> Jaa-painiketta selaimen palkissa`, 'Valitse <b>Lisää Koti-valikkoon</b>', 'Avaa Ride kotinäytöltä']
+    ? [`Napauta <span class="kbd"><svg><use href="#i-share"/></svg></span> Jaa-painiketta selaimen palkissa`, 'Valitse <b>Lisää Koti-valikkoon</b>', 'Avaa Pyöräily kotinäytöltä']
     : /Android/i.test(navigator.userAgent)
-      ? ['Napauta <span class="kbd">⋮</span> selaimen oikeassa yläkulmassa', 'Valitse <b>Lisää aloitusnäytölle</b> tai <b>Asenna sovellus</b>', 'Avaa Ride aloitusnäytöltä']
-      : ['Avaa tämä sivu puhelimesi selaimella', 'Lisää se kotinäytölle selaimen valikosta', 'Avaa Ride kotinäytöltä'];
+      ? ['Napauta <span class="kbd">⋮</span> selaimen oikeassa yläkulmassa', 'Valitse <b>Lisää aloitusnäytölle</b> tai <b>Asenna sovellus</b>', 'Avaa Pyöräily aloitusnäytöltä']
+      : ['Avaa tämä sivu puhelimesi selaimella', 'Lisää se kotinäytölle selaimen valikosta', 'Avaa Pyöräily kotinäytöltä'];
   $('obHow').innerHTML = how.map(t => `<li>${t}</li>`).join('');
   ['obInstallStep', 'obAiStep'].forEach(id => $(id).hidden = !obSteps.includes(id));
   $('obDots').innerHTML = obSteps.length > 1 ? obSteps.map(() => '<i></i>').join('') : '';
