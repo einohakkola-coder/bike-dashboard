@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 
-const VERSION = '3.8';   // bump here and in version.json on every release
+const VERSION = '4.0';   // bump here and in version.json on every release
 const $ = id => document.getElementById(id);
 const store = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -16,7 +16,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
    ===================================================================== */
 const DEFAULT_MSG = 'SOS! Tarvitsen apua pyörälenkillä.';
 const DEFAULTS = {
-  name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true,
+  name: '', units: 'km', autoPause: false, keepAwake: true, haptics: true, voice: true,
   mapStyle: 'liberty', routeLen: 'normal',
   sosNumbers: [], sosMessage: DEFAULT_MSG, sosLocation: true, sosHold: 5, sosAction: 'sms',
   aiProvider: 'claude', keyClaude: '', keyOpenai: '', keyGemini: '', keyGroq: ''
@@ -107,7 +107,7 @@ function makeMap(el) {
   return m;
 }
 function applyMapStyle() {
-  [homeMap, rideMap].forEach(m => { try { m._gl.getMaplibreMap().setStyle(styleUrl()); } catch {} });
+  [homeMap, rideMap, sumMap].filter(Boolean).forEach(m => { try { m._gl.getMaplibreMap().setStyle(styleUrl()); } catch {} });
   document.querySelectorAll('.map').forEach(el => el.style.background = S.mapStyle === 'dark' ? '#1b1b1d' : '');
 }
 const homeMap = makeMap('homeMap');
@@ -200,7 +200,7 @@ let recent = [];   // fixes from the last few seconds, for computing speed when 
 
 function onPos(p) {
   const c = p.coords;
-  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: Date.now() };
+  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: Date.now(), alt: c.altitude, altAcc: c.altitudeAccuracy };
 
   // Prefer the speed the phone reports (Doppler-based). Some devices give null or -1;
   // then derive it from the distance covered over the last ~5 s.
@@ -254,54 +254,89 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
    Ride recording
    ===================================================================== */
 let rideActive = false, paused = false, autoPaused = false, stillSince = 0;
-let elapsed = 0, lastTick = Date.now(), distance = 0, maxSpeed = 0, lastRidePos = null;
+let elapsed = 0, moving = 0, lastTick = Date.now(), distance = 0, maxSpeed = 0, climb = 0, baseAlt = null, lastRidePos = null;
+let startedAt = 0, splits = [], nextSplit = 0, lastSplitAt = 0, saveCounter = 0;
 let track = null, trackPts = [];
+const splitLen = () => isMi() ? 1609.344 : 1000;
+const avgKmh = () => moving > 0 ? (distance / 1000) / (moving / 3600000) : 0;
 
+function drawTrack() {
+  if (track) track.remove();
+  track = L.polyline(trackPts, { color: '#ff3b30', weight: 4, opacity: .85 }).addTo(rideMap);
+}
 function startRide() {
   rideActive = true;
-  elapsed = 0; distance = 0; maxSpeed = 0; lastRidePos = null; lastTick = Date.now(); trackPts = [];
-  if (track) track.remove();
-  track = L.polyline([], { color: '#ff3b30', weight: 4, opacity: .85 }).addTo(rideMap);
+  elapsed = moving = distance = maxSpeed = climb = 0; baseAlt = null; lastRidePos = null; lastTick = Date.now(); trackPts = [];
+  startedAt = Date.now(); splits = []; nextSplit = splitLen(); lastSplitAt = 0;
+  drawTrack();
   document.body.classList.add('riding');
   setPaused(false);
   keepAwake();
+  speak('Lenkki aloitettu');   // first speech has to happen inside a tap on iPhone
+  follow = true;
+  if (lastFix) rideMap.setView([lastFix.lat, lastFix.lon], Math.max(rideMap.getZoom(), 16), { animate: true });
+  saveRideState();
 }
 function onRideFix(fix) {
   if (!rideActive || paused || fix.acc > 30) return;
   if (lastRidePos) {
-    const d = haversine(lastRidePos, fix);
-    if (d <= 2 || d >= 200) return;
+    const d = haversine(lastRidePos, fix), dt = Math.max(1, (fix.t - lastRidePos.t) / 1000);
+    if (d <= 2) return;
+    // faster than ~90 km/h means a GPS jump: measure again from here instead of adding it
+    // (the old rule never moved the anchor, so distance could stop counting for the rest of the ride)
+    if (d / dt > 25) { lastRidePos = fix; return; }
     distance += d;
   }
-  trackPts.push([fix.lat, fix.lon]);
+  // climb with a 3 m dead band so GPS altitude noise doesn't add up
+  if (fix.alt != null && fix.altAcc != null && fix.altAcc <= 20) {
+    if (baseAlt == null) baseAlt = fix.alt;
+    else if (fix.alt - baseAlt >= 3) { climb += fix.alt - baseAlt; baseAlt = fix.alt; }
+    else if (baseAlt - fix.alt >= 3) baseAlt = fix.alt;
+  }
+  trackPts.push([+fix.lat.toFixed(6), +fix.lon.toFixed(6)]);
   track.addLatLng([fix.lat, fix.lon]);
   if (peakWin.length === 3) maxSpeed = Math.max(maxSpeed, Math.min(...peakWin));
   lastRidePos = fix;
+  checkSplit();
+}
+function checkSplit() {
+  while (distance >= nextSplit) {
+    const n = Math.round(nextSplit / splitLen());
+    const splitMs = moving - lastSplitAt;
+    lastSplitAt = moving; splits.push(splitMs); nextSplit += splitLen();
+    toast(`${n} ${dUnit()} · ${fmtTime(splitMs)}`);
+    buzz([60, 60, 60]);
+    const unit = isMi() ? (n === 1 ? 'maili' : 'mailia') : (n === 1 ? 'kilometri' : 'kilometriä');
+    speak(`${n} ${unit}. Aika ${spokenTime(elapsed)}. Viimeisin ${isMi() ? 'maili' : 'kilometri'} ${spokenTime(splitMs)}. Keskinopeus ${Math.round(toSpeed(avgKmh()))}.`);
+  }
 }
 function renderRide() {
-  const avg = elapsed > 0 ? (distance / 1000) / (elapsed / 3600000) : 0;
   $('speed').textContent = Math.round(toSpeed(speedKmh));
   $('speedUnit').textContent = sUnit().toUpperCase();
   $('time').textContent = fmtTime(elapsed);
   $('dist').textContent = toDist(distance).toFixed(2);
   $('distUnit').textContent = dUnit();
-  $('avg').textContent = Math.round(toSpeed(avg));
+  $('avg').textContent = Math.round(toSpeed(avgKmh()));
   $('avgUnit').textContent = `Keski ${sUnit()}`;
 }
 setInterval(() => {
-  const now = Date.now();
-  if (rideActive && !paused) elapsed += now - lastTick;
+  const now = Date.now(), dt = now - lastTick;
   lastTick = now;
+  if (rideActive && !paused) {
+    elapsed += dt;
+    if (speedKmh >= 2 && dt < 5000) moving += dt;   // moving time drives the average, so traffic lights don't drag it down
+  }
   if (now - lastFixAt > 5000) speedKmh = 0;
 
   if (rideActive && S.autoPause) {
     if (!paused && speedKmh === 0) {
       stillSince ||= now;
-      if (now - stillSince > 8000) { setPaused(true); autoPaused = true; toast('Automaattinen tauko'); buzz(30); }
+      if (now - stillSince > 8000) { setPaused(true); autoPaused = true; toast('Automaattinen tauko'); buzz(30); speak('Tauko'); }
     } else if (speedKmh > 0) stillSince = 0;
-    if (paused && autoPaused && speedKmh > 4) { setPaused(false); toast('Jatketaan'); buzz(30); }
+    if (paused && autoPaused && speedKmh > 4) { setPaused(false); toast('Jatketaan'); buzz(30); speak('Jatketaan'); }
   }
   renderRide();
+  if (rideActive && ++saveCounter % 20 === 0) saveRideState();   // every 5 s
 }, 250);
 
 function setPaused(v) {
@@ -309,50 +344,164 @@ function setPaused(v) {
   document.body.classList.toggle('paused', v);
   $('pause').setAttribute('aria-label', v ? 'Jatka' : 'Tauko');
   lastRidePos = null;
+  if (rideActive) saveRideState();
 }
-$('pause').addEventListener('click', () => { if (!rideActive) return; setPaused(!paused); buzz(20); });
+$('pause').addEventListener('click', () => {
+  if (!rideActive) return;
+  setPaused(!paused); buzz(20);
+  speak(paused ? 'Tauko' : 'Jatketaan');
+});
+
+/* ---------- keep an unfinished ride if the app is closed or reloaded ---------- */
+function saveRideState() {
+  if (!rideActive) { try { localStorage.removeItem('rideState'); } catch {} return; }
+  store.set('rideState', { elapsed, moving, distance, maxSpeed, climb, paused, startedAt, splits, nextSplit, lastSplitAt, track: trackPts.slice(-4000), savedAt: Date.now() });
+}
+addEventListener('pagehide', saveRideState);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveRideState(); });
+function restoreRide() {
+  const st = store.get('rideState', null);
+  if (!st) return false;
+  if (Date.now() - st.savedAt > 12 * 3600000) { saveRideState(); return false; }
+  rideActive = true;
+  ({ elapsed, moving, distance, maxSpeed, climb, startedAt, lastSplitAt } = st);
+  splits = st.splits || []; nextSplit = st.nextSplit || splitLen(); trackPts = st.track || [];
+  // the clock kept running while the app was closed (unless paused); moving time didn't
+  if (!st.paused) elapsed += Math.min(Date.now() - st.savedAt, 30 * 60000);
+  lastTick = Date.now(); lastRidePos = null; baseAlt = null;
+  drawTrack();
+  document.body.classList.add('riding');
+  setPaused(!!st.paused);
+  keepAwake();
+  setTimeout(() => toast('Keskeneräinen lenkki palautettu'), 900);
+  return true;
+}
+
+/* ---------- finishing a ride, ride details ---------- */
+let pendingRide = null, detailRide = null, sumMap = null, sumLine = null;
 $('main').addEventListener('click', () => {
   if (!rideActive) { startRide(); buzz(40); return; }
   if (!paused) return;
   buzz(40);
-  const avg = elapsed > 0 ? (distance / 1000) / (elapsed / 3600000) : 0;
-  $('sTime').textContent = fmtTime(elapsed);
-  $('sDist').textContent = toDist(distance).toFixed(2);
+  pendingRide = {
+    id: uid(), start: startedAt, at: Date.now(), ms: elapsed, moving, m: Math.round(distance),
+    avg: +avgKmh().toFixed(1), max: +maxSpeed.toFixed(1), climb: Math.round(climb), splits: [...splits],
+    line: simplify(trackPts, 10)
+  };
+  showRideSheet(pendingRide, 'finish');
+});
+function showRideSheet(r, mode) {
+  $('sumTitle').textContent = mode === 'finish' ? 'Lenkki valmis' : 'Lenkki';
+  $('sumDate').textContent = new Date(r.start || r.at).toLocaleString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  $('sDist').textContent = toDist(r.m).toFixed(2);
   $('sDistUnit').textContent = dUnit();
-  $('sAvg').textContent = `${Math.round(toSpeed(avg))}`;
-  $('sMax').textContent = `${Math.round(toSpeed(maxSpeed))}`;
-  lastRide = null;
-  if (elapsed > 10000) {
-    lastRide = { id: uid(), at: Date.now(), ms: elapsed, m: Math.round(distance), avg: +avg.toFixed(1), max: +maxSpeed.toFixed(1), line: simplify(trackPts).slice(-800) };
-    D.rides.unshift(lastRide);
-    D.rides = D.rides.slice(0, 300);
-    persist();
+  $('sTime').textContent = fmtTime(r.moving ?? r.ms);
+  $('sAvg').textContent = Math.round(toSpeed(r.avg));
+  $('sAvgUnit').textContent = `Keski ${sUnit()}`;
+  $('sMax').textContent = Math.round(toSpeed(r.max));
+  $('sMaxUnit').textContent = `Huippu ${sUnit()}`;
+  $('sClimb').textContent = r.climb == null ? '–' : Math.round(isMi() ? r.climb * 3.28084 : r.climb);
+  $('sClimbUnit').textContent = `Nousu ${isMi() ? 'ft' : 'm'}`;
+  $('sTotal').textContent = fmtTime(r.ms);
+  $('sumFinish').hidden = mode !== 'finish';
+  $('sumDetail').hidden = mode !== 'detail';
+  for (const id of ['saveRide', 'detailSaveRoute']) {
+    const b = $(id);
+    b.disabled = !(r.line?.length >= 2);
+    b.classList.remove('saved');
+    b.querySelector('span').textContent = 'Reitiksi';
   }
-  const sr = $('saveRide');
-  sr.hidden = !(lastRide && lastRide.line.length >= 2);
-  sr.classList.remove('saved'); sr.disabled = false;
-  sr.lastChild.textContent = 'Tallenna reitiksi';
+  resetConfirm($('discardRide'), 'Hylkää');
+  resetConfirm($('deleteRide'), 'Poista');
+  const hasLine = r.line?.length >= 2;
+  $('sumMap').hidden = !hasLine;
   openSheet('summary');
-});
-let lastRide = null;
-$('saveRide').addEventListener('click', async () => {
-  if (!lastRide) return;
-  const name = await askName(`Lenkki ${fmtDate(lastRide.at)}`);
-  if (!name) return;
-  saveRoute({ name, kind: 'ride', desc: 'Oma ajettu lenkki', line: lastRide.line, distance: lastRide.m, duration: lastRide.ms / 1000, points: samplePoints(lastRide.line), steps: [] });
-  const sr = $('saveRide');
-  sr.classList.add('saved'); sr.disabled = true; sr.lastChild.textContent = 'Tallennettu';
-});
-$('newRide').addEventListener('click', () => {
-  rideActive = false;
+  if (hasLine) setTimeout(() => drawMini(r.line), 60);
+}
+function drawMini(line) {
+  if (!sumMap) {
+    sumMap = L.map('sumMap', { zoomControl: false, attributionControl: false, dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false });
+    sumMap._gl = L.maplibreGL({ style: styleUrl() }).addTo(sumMap);
+  }
+  const fit = () => { sumMap.invalidateSize(); sumMap.fitBounds(sumLine.getBounds(), { padding: [18, 18], animate: false }); };
+  if (sumLine) sumLine.remove();
+  sumLine = L.polyline(line, { color: '#ff3b30', weight: 4 }).addTo(sumMap);
+  fit();
+  setTimeout(fit, 480);   // again once the sheet has finished sliding up
+}
+// two-tap confirm for destructive buttons
+function confirmTap(btn, label, action) {
+  if (!btn.classList.contains('confirm')) {
+    btn.classList.add('confirm'); btn.querySelector('span').textContent = 'Varmasti?'; buzz(10);
+    clearTimeout(btn._t); btn._t = setTimeout(() => resetConfirm(btn, label), 3000);
+    return;
+  }
+  resetConfirm(btn, label);
+  action();
+}
+function resetConfirm(btn, label) { btn.classList.remove('confirm'); btn.querySelector('span').textContent = label; }
+
+function endRide() {
+  rideActive = false; pendingRide = null;
   setPaused(false);
-  elapsed = 0; distance = 0; maxSpeed = 0;
+  elapsed = moving = distance = maxSpeed = climb = 0; trackPts = []; splits = [];
   if (track) { track.remove(); track = null; }
   document.body.classList.remove('riding');
   wakeLock?.release?.();
   closeSheet('summary');
-  renderRide();
+  saveRideState();
+  renderRide(); renderProfile();
+}
+$('saveRideBtn').addEventListener('click', () => {
+  if (!pendingRide) return;
+  D.rides.unshift(pendingRide);
+  D.rides = D.rides.slice(0, 300);
+  persist();
+  buzz(30); toast('Lenkki tallennettu');
+  endRide();
 });
+$('discardRide').addEventListener('click', e => confirmTap(e.currentTarget, 'Hylkää', () => { endRide(); toast('Lenkki hylätty'); }));
+$('resumeRide').addEventListener('click', () => { closeSheet('summary'); setPaused(false); buzz(20); speak('Jatketaan'); });
+$('backdrop').addEventListener('click', () => {
+  if ($('summary').classList.contains('open') && !$('nameSheet').classList.contains('open')) closeSheet('summary');
+});
+async function saveRideAsRoute(r, btn) {
+  if (!r || !(r.line?.length >= 2)) return;
+  const name = await askName(`Lenkki ${fmtDate(r.start || r.at)}`);
+  if (!name) return;
+  saveRoute({ name, kind: 'ride', desc: 'Oma ajettu lenkki', line: r.line, distance: r.m, duration: (r.moving ?? r.ms) / 1000, points: samplePoints(r.line), steps: [] });
+  btn.classList.add('saved'); btn.disabled = true; btn.querySelector('span').textContent = 'Tallennettu';
+}
+$('saveRide').addEventListener('click', e => saveRideAsRoute(pendingRide, e.currentTarget));
+$('detailSaveRoute').addEventListener('click', e => saveRideAsRoute(detailRide, e.currentTarget));
+$('deleteRide').addEventListener('click', e => confirmTap(e.currentTarget, 'Poista', () => {
+  D.rides = D.rides.filter(r => r.id !== detailRide?.id);
+  persist(); closeSheet('summary'); renderProfile(); toast('Lenkki poistettu');
+}));
+$('closeDetail').addEventListener('click', () => closeSheet('summary'));
+function openRideDetail(id) {
+  detailRide = D.rides.find(r => r.id === id);
+  if (detailRide) showRideSheet(detailRide, 'detail');
+}
+
+/* ---------- spoken announcements (Finnish) ---------- */
+let fiVoice = null;
+function pickVoice() { try { fiVoice = speechSynthesis.getVoices().find(v => /^fi/i.test(v.lang)) || null; } catch {} }
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(text) {
+  if (!S.voice || !text || !('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'fi-FI'; u.rate = 1.03;
+    if (fiVoice) u.voice = fiVoice;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+function spokenTime(ms) {
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  const part = (n, one, many) => n ? `${n} ${n === 1 ? one : many}` : '';
+  return [part(h, 'tunti', 'tuntia'), part(m, 'minuutti', 'minuuttia'), h ? '' : part(ss, 'sekunti', 'sekuntia')].filter(Boolean).join(' ') || '0 sekuntia';
+}
 
 /* =====================================================================
    Routing (OSRM bike) + turn-by-turn
@@ -387,14 +536,21 @@ function describe(s) {
 }
 
 let active = null, activeLine = null, stepIdx = 0;
-function setActiveRoute(r) {
-  clearRoute();
+// navigation state lives apart from the route object so it never ends up in saved data
+let nav = null;
+function setActiveRoute(r, keepView = false) {
+  clearRoute(keepView);
   active = r; stepIdx = 0;
+  const flat = flatLine(r.line), cum = [0];
+  for (let i = 1; i < flat.length; i++) cum.push(cum[i - 1] + haversine({ lat: flat[i - 1][0], lon: flat[i - 1][1] }, { lat: flat[i][0], lon: flat[i][1] }));
+  nav = { flat, cum, total: cum[cum.length - 1] || r.distance || 0, idx: 0, remaining: null, offCount: 0, off: false, offD: 0, said: new Set(), arrived: false, rerouteAt: keepView ? Date.now() : 0 };
   activeLine = L.polyline(r.line, { color: '#0a84ff', weight: 6, opacity: .95 }).addTo(rideMap);
+  track?.bringToFront();
   rideMap.invalidateSize();
-  rideMap.fitBounds(activeLine.getBounds(), { paddingTopLeft: [30, 140], paddingBottomRight: [30, 60], animate: true });
-  follow = false;
-  $('nav').classList.toggle('show', !!r.steps?.length);
+  if (!keepView) {
+    rideMap.fitBounds(activeLine.getBounds(), { paddingTopLeft: [30, 140], paddingBottomRight: [30, 60], animate: true });
+    follow = false;
+  }
   $('ext').classList.add('show');
   $('clearRoute').hidden = false;
   $('saveActive').hidden = false;
@@ -411,35 +567,107 @@ function setActiveRoute(r) {
   if (via.length) g.searchParams.set('waypoints', via.map(p => `${p.lat},${p.lon}`).join('|'));
   $('gmaps').href = g.toString();
   $('amaps').href = `https://maps.apple.com/directions?destination=${dest.lat},${dest.lon}&mode=cycling`;
-  updateNav();
+  if (lastFix) onNavFix(lastFix); else updateNav();
 }
-function clearRoute() {
+function clearRoute(keepView = false) {
   if (activeLine) activeLine.remove();
-  active = activeLine = null;
-  $('nav').classList.remove('show');
+  active = activeLine = nav = null;
+  $('nav').classList.remove('show', 'off');
   $('ext').classList.remove('show');
   $('clearRoute').hidden = $('saveActive').hidden = true;
-  $('search').value = '';
+  if (!keepView) $('search').value = '';
 }
 $('clearRoute').addEventListener('click', () => { clearRoute(); follow = true; });
 function refreshSaveActive() { $('saveActive').classList.toggle('saved', !!active && isSaved(active)); }
 $('saveActive').addEventListener('click', () => toggleSave(active).then(refreshSaveActive));
 
+// closest point on the route line (metres), looking ahead of where we were so a loop's finish isn't mistaken for its start
+function nearestOnRoute(p) {
+  const f = nav.flat;
+  if (f.length < 2) return { d: 0, i: 0, t: 0 };
+  const kx = 111320 * Math.cos(p.lat * Math.PI / 180), ky = 110540;
+  const scan = (from, to) => {
+    let best = { d: Infinity, i: 0, t: 0 };
+    for (let i = Math.max(0, from); i < Math.min(f.length - 1, to); i++) {
+      const ax = (f[i][1] - p.lon) * kx, ay = (f[i][0] - p.lat) * ky;
+      const dx = (f[i + 1][1] - f[i][1]) * kx, dy = (f[i + 1][0] - f[i][0]) * ky, len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d < best.d) best = { d, i, t };
+    }
+    return best;
+  };
+  let best = scan(nav.idx - 30, nav.idx + 600);
+  if (best.d > 60) { const all = scan(0, f.length); if (all.d < best.d - 20) best = all; }
+  return best;
+}
+const spokenStep = s => { const t = describe(s)[0].replace(' · ', ', '); return t[0].toLowerCase() + t.slice(1); };
+const spokenDist = d => isMi() ? `${Math.max(100, Math.round(d * 3.28084 / 100) * 100)} jalan` : `${Math.max(50, Math.round(d / 50) * 50)} metrin`;
+
 function onNavFix(fix) {
-  if (!active?.steps?.length) return;
-  for (let i = stepIdx; i < Math.min(stepIdx + 4, active.steps.length); i++) {
-    if (haversine(fix, active.steps[i]) < 25 && active.steps[i].type !== 'arrive') stepIdx = i + 1;
+  if (!active || !nav) return;
+  const near = nearestOnRoute(fix);
+  nav.idx = near.i;
+  const seg = (nav.cum[near.i + 1] ?? nav.cum[near.i]) - nav.cum[near.i];
+  nav.remaining = Math.max(0, nav.total - nav.cum[near.i] - near.t * seg);
+  nav.offD = near.d;
+  if (fix.acc <= 30) nav.offCount = near.d > 45 ? nav.offCount + 1 : 0;
+  const wasOff = nav.off;
+  nav.off = nav.offCount >= 3;
+  if (rideActive && nav.off && !wasOff) { speak(active.kind === 'dest' ? 'Poistuit reitiltä. Lasketaan uusi reitti.' : 'Poistuit reitiltä'); buzz([80, 60, 80]); }
+  if (rideActive && !nav.off && wasOff) speak('Takaisin reitillä');
+  if (nav.off && active.kind === 'dest' && Date.now() - nav.rerouteAt > 20000) reroute();
+
+  const steps = active.steps || [];
+  if (steps.length) {
+    for (let i = stepIdx; i < Math.min(stepIdx + 4, steps.length); i++)
+      if (haversine(fix, steps[i]) < 25 && steps[i].type !== 'arrive') stepIdx = i + 1;
+    const s = steps[stepIdx];
+    if (s && rideActive && !nav.off) {
+      const d = haversine(fix, s);
+      if (d < 230 && d > 90 && !nav.said.has(`f${stepIdx}`)) { nav.said.add(`f${stepIdx}`); speak(`${spokenDist(d)} päästä ${spokenStep(s)}`); }
+      if (d < 45 && !nav.said.has(`n${stepIdx}`)) {
+        nav.said.add(`n${stepIdx}`);
+        if (s.type === 'arrive') nav.said.add('arr');
+        speak(s.type === 'arrive' ? 'Olet perillä' : `Nyt ${spokenStep(s)}`);
+      }
+    }
+  }
+  if (active.kind === 'dest' && !nav.arrived && nav.remaining < 30) {
+    nav.arrived = true;
+    toast('Olet perillä');
+    if (rideActive) { buzz([100, 60, 100]); if (!nav.said.has('arr')) speak('Olet perillä'); }
   }
   updateNav();
 }
+async function reroute() {
+  nav.rerouteAt = Date.now();
+  const dest = (active.points || []).at(-1);
+  if (!dest || !lastFix) return;
+  nav.rerouting = true; updateNav();
+  try {
+    const r = await route([lastFix, dest]);
+    setActiveRoute({ ...r, name: active.name, kind: 'dest', desc: active.desc, key: active.key }, true);
+    toast('Reitti laskettu uudelleen');
+    if (rideActive) speak('Uusi reitti laskettu');
+  } catch { if (nav) nav.rerouting = false; updateNav(); }
+}
 function updateNav() {
-  if (!active?.steps?.length) return;
-  const s = active.steps[stepIdx] || active.steps[active.steps.length - 1];
-  const [txt, deg] = describe(s);
-  $('navArrow').style.transform = `rotate(${deg}deg)`;
-  $('navStreet').textContent = txt;
-  $('navDist').textContent = lastFix ? fmtShort(haversine(lastFix, s)) : '';
-  $('navLeft').textContent = fmtShort(active.distance);
+  if (!active || !nav) return;
+  const steps = active.steps || [];
+  $('nav').classList.toggle('show', !!steps.length || nav.off);
+  $('nav').classList.toggle('off', nav.off);
+  if (nav.off) {
+    $('navDist').textContent = `${fmtShort(nav.offD)} reitiltä`;
+    $('navStreet').textContent = nav.rerouting ? 'Lasketaan uutta reittiä…' : active.kind === 'dest' ? 'Poistuit reitiltä' : 'Palaa sinisellä merkitylle reitille';
+  } else if (steps.length) {
+    const s = steps[stepIdx] || steps[steps.length - 1];
+    const [txt, deg] = describe(s);
+    $('navArrow').style.transform = `rotate(${deg}deg)`;
+    $('navStreet').textContent = txt;
+    $('navDist').textContent = lastFix ? fmtShort(haversine(lastFix, s)) : '';
+  }
+  $('navLeft').innerHTML = `<b>${fmtShort(nav.remaining ?? nav.total)}</b><small>jäljellä</small>`;
 }
 
 /* ---------- destination search ---------- */
@@ -810,11 +1038,13 @@ function renderProfile() {
   }));
 
   $('history').innerHTML = rides.length
-    ? rides.slice(0, 8).map(r => `
-      <div class="item"><div class="ic"><svg><use href="#i-route"/></svg></div>
+    ? rides.slice(0, 20).map(r => `
+      <button class="item" data-id="${esc(r.id)}"><div class="ic"><svg><use href="#i-route"/></svg></div>
         <div class="mid"><b>${toDist(r.m).toFixed(1)} ${dUnit()}</b>
-        <small>${fmtDate(r.at)} · ${fmtTime(r.ms)} · ${Math.round(toSpeed(r.avg))} ${sUnit()}</small></div></div>`).join('')
+        <small>${fmtDate(r.at)} · ${fmtTime(r.moving ?? r.ms)} · ${Math.round(toSpeed(r.avg))} ${sUnit()}</small></div>
+        <svg class="chev"><use href="#i-chevron"/></svg></button>`).join('')
     : '<div class="empty">Ei vielä lenkkejä. Aloita Ajo-välilehdeltä.</div>';
+  $('history').querySelectorAll('.item').forEach(b => b.addEventListener('click', () => { buzz(8); openRideDetail(b.dataset.id); }));
 }
 $('openSettings').addEventListener('click', () => { renderSettings(); openPage('settings'); });
 
@@ -845,7 +1075,7 @@ function renderKeyField() {
   $('keyLabel').textContent = p.label;
   $('setKey').placeholder = `${p.ph} (valinnainen)`;
   $('setKey').value = S[p.key] || '';
-  $('keyFoot').textContent = `${p.note} Ilman avainta reitit luodaan automaattisesti lähialueen teistä. Avaimet pysyvät vain tällä laitteella.`;
+  $('keyFoot').textContent = `${p.note} Avaimet pysyvät vain tällä laitteella.`;
 }
 document.querySelectorAll('.seg[data-setting]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
   const k = seg.dataset.setting;
@@ -912,6 +1142,8 @@ function onSettingChanged(k) {
   if (k === 'keepAwake' && !S.keepAwake) wakeLock?.release?.();
   if (k === 'keepAwake' && S.keepAwake && rideActive) keepAwake();
   if (k === 'name') { updateGreeting(); renderProfile(); }
+  if (k === 'voice' && !S.voice) { try { speechSynthesis.cancel(); } catch {} }
+  if (k === 'voice' && S.voice) speak('Ääniopastus päällä');
 }
 
 $('clearHistory').addEventListener('click', e => {
@@ -1342,7 +1574,7 @@ if (S.sosAction !== 'call') S.sosAction = 'sms';   // the Shortcut and 'none' op
 store.set('settings', S);
 applyMapStyle();
 updateGreeting();
-showTab('home');
+showTab(restoreRide() ? 'record' : 'home');
 renderCards();
 renderRide();
 renderProfile();
