@@ -84,12 +84,13 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .greet-sub { font-size: 13px; color: var(--fg-2); margin-top: 1px; }
 .home-bottom { position: absolute; z-index: 500; left: 0; right: 0; bottom: var(--tab-space); display: flex; flex-direction: column; gap: 10px; }
 .seg-pill {
-  position: relative; align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; border-radius: 20px; width: min(320px, calc(100% - 28px));
+  position: relative; align-self: center; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 20px; width: 240px;
 }
 .seg-pill button { position: relative; z-index: 1; height: 32px; font-size: 13px; font-weight: 600; color: var(--fg-2); border-radius: 16px; }
 .seg-pill button.on { color: #000; }
 .seg-pill button:active { transform: none; }
-.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 16px; background: #fff; transition: transform .35s var(--ease); }
+.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 16px; background: #fff; transition: transform .35s var(--ease); }
+.seg-pill.right .seg-thumb { transform: translateX(100%); }
 
 .cards { display: flex; gap: 10px; overflow-x: auto; padding: 2px 14px; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .cards::-webkit-scrollbar { display: none; }
