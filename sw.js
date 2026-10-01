@@ -1,4 +1,4 @@
-const CACHE = 'ride-v22';
+const CACHE = 'ride-v23';
 const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'cloud.js', 'config.js', 'manifest.json', 'icon.svg', 'sounds/sos-chime.mp3', 'sounds/sos-siren.mp3', 'sounds/sos-siren-last.mp3', 'app-icon-180.png', 'app-icon-192.png', 'app-icon-512.png'];
 
 self.addEventListener('install', e => {
